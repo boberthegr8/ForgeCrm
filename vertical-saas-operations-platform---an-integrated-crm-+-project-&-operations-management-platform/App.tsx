@@ -1,0 +1,29 @@
+
+import React from 'react';
+import { HashRouter, Routes, Route } from 'react-router-dom';
+import { Layout } from './components/Layout';
+import { Dashboard } from './components/Dashboard';
+import { CustomerCRM } from './components/CustomerCRM';
+import { QuoteNexus } from './components/QuoteNexus';
+import { ProjectNexus } from './components/ProjectNexus';
+import { DailyChecklist } from './components/DailyChecklist';
+import { DeliveryBoard } from './components/DeliveryBoard';
+
+const App: React.FC = () => {
+  return (
+    <HashRouter>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/crm" element={<CustomerCRM />} />
+          <Route path="/quotes" element={<QuoteNexus />} />
+          <Route path="/projects" element={<ProjectNexus />} />
+          <Route path="/deliveries" element={<DeliveryBoard />} />
+          <Route path="/checklist" element={<DailyChecklist />} />
+        </Routes>
+      </Layout>
+    </HashRouter>
+  );
+};
+
+export default App;
