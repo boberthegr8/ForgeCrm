@@ -33,7 +33,6 @@ body {
 }
 
 ::selection { background: var(--forge-accent); color: #111; }
-
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--forge-bg); }
 ::-webkit-scrollbar-thumb { background: #34383e; border-radius: 10px; }
@@ -58,6 +57,71 @@ body {
 .forge-muted { color: var(--forge-text-muted); }
 .forge-secondary { color: var(--forge-text-secondary); }
 .forge-accent { color: var(--forge-accent); }
+
+/* Phase 1 compatibility layer: existing CRM modules keep their behavior while
+   legacy Tailwind light-theme utilities inherit the shared Forge palette. */
+.forge-shell .bg-white,
+.forge-shell .bg-slate-50,
+.forge-shell .bg-slate-50\/50 { background-color: var(--forge-surface) !important; }
+.forge-shell .bg-slate-100,
+.forge-shell .bg-slate-100\/50 { background-color: var(--forge-surface-raised) !important; }
+.forge-shell .hover\:bg-slate-50:hover,
+.forge-shell .hover\:bg-slate-50\/50:hover,
+.forge-shell .hover\:bg-slate-100:hover { background-color: var(--forge-surface-hover) !important; }
+
+.forge-shell .text-slate-950,
+.forge-shell .text-slate-900,
+.forge-shell .text-slate-800,
+.forge-shell .text-slate-700 { color: var(--forge-text) !important; }
+.forge-shell .text-slate-600,
+.forge-shell .text-slate-500,
+.forge-shell .text-slate-400 { color: var(--forge-text-secondary) !important; }
+.forge-shell .text-slate-300 { color: var(--forge-text-muted) !important; }
+
+.forge-shell .border-slate-50,
+.forge-shell .border-slate-100,
+.forge-shell .border-slate-200,
+.forge-shell .border-slate-300,
+.forge-shell .divide-slate-50 > :not([hidden]) ~ :not([hidden]),
+.forge-shell .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+.forge-shell .divide-slate-200 > :not([hidden]) ~ :not([hidden]) { border-color: var(--forge-border) !important; }
+
+.forge-shell input:not([type='checkbox']):not([type='radio']),
+.forge-shell textarea,
+.forge-shell select {
+  background-color: var(--forge-surface-raised);
+  border-color: var(--forge-border);
+  color: var(--forge-text);
+}
+.forge-shell input::placeholder,
+.forge-shell textarea::placeholder { color: var(--forge-text-muted); }
+
+/* Indigo was the old prototype brand color. Orange is the Forge master accent. */
+.forge-shell .text-indigo-500,
+.forge-shell .text-indigo-600,
+.forge-shell .text-indigo-700,
+.forge-shell .group:hover .group-hover\:text-indigo-600 { color: var(--forge-accent) !important; }
+.forge-shell .bg-indigo-500,
+.forge-shell .bg-indigo-600,
+.forge-shell .bg-indigo-700 { background-color: var(--forge-accent) !important; }
+.forge-shell .bg-indigo-50,
+.forge-shell .bg-indigo-100 { background-color: var(--forge-accent-soft) !important; }
+.forge-shell .border-indigo-100,
+.forge-shell .border-indigo-200,
+.forge-shell .border-indigo-300 { border-color: rgba(255, 116, 23, 0.3) !important; }
+.forge-shell .focus\:ring-indigo-500:focus,
+.forge-shell .focus\:ring-indigo-600:focus { --tw-ring-color: rgba(255, 116, 23, 0.35) !important; }
+
+/* Modals, tables and panels should read as raised surfaces rather than white cards. */
+.forge-shell table { color: var(--forge-text); }
+.forge-shell thead { color: var(--forge-text-secondary); }
+.forge-shell tbody tr { border-color: var(--forge-border-soft); }
+.forge-shell tbody tr:hover { background-color: rgba(255, 255, 255, 0.025); }
+.forge-shell .shadow-sm,
+.forge-shell .shadow-md,
+.forge-shell .shadow-lg,
+.forge-shell .shadow-xl,
+.forge-shell .shadow-2xl { --tw-shadow-color: rgba(0,0,0,.28); }
 
 @keyframes forge-slide-up {
   from { transform: translateY(10px); opacity: 0; }
