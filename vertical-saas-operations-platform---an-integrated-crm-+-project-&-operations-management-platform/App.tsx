@@ -8,22 +8,25 @@ import { ProjectNexus } from './components/ProjectNexus';
 import { DailyChecklist } from './components/DailyChecklist';
 import { DeliveryBoard } from './components/DeliveryBoard';
 import { QuoteIntakeDock } from './components/QuoteIntakeDock';
+import { ForgeStoreProvider } from './store';
 
 const App: React.FC = () => {
   return (
-    <HashRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/crm" element={<CustomerCRM />} />
-          <Route path="/quotes" element={<QuoteNexus />} />
-          <Route path="/projects" element={<ProjectNexus />} />
-          <Route path="/deliveries" element={<DeliveryBoard />} />
-          <Route path="/checklist" element={<DailyChecklist />} />
-        </Routes>
-      </Layout>
-      <QuoteIntakeDock />
-    </HashRouter>
+    <ForgeStoreProvider>
+      <HashRouter>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/crm" element={<CustomerCRM />} />
+            <Route path="/quotes" element={<QuoteNexus />} />
+            <Route path="/projects" element={<ProjectNexus />} />
+            <Route path="/deliveries" element={<DeliveryBoard />} />
+            <Route path="/checklist" element={<DailyChecklist />} />
+          </Routes>
+        </Layout>
+        <QuoteIntakeDock />
+      </HashRouter>
+    </ForgeStoreProvider>
   );
 };
 
