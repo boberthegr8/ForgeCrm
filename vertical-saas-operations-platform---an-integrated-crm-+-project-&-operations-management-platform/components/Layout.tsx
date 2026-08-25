@@ -22,6 +22,27 @@ const SidebarLink = ({ to, icon: Icon, label, badge }: { to: string, icon: any, 
   </NavLink>
 );
 
+const SuiteLink = ({ label, href, active = false, comingSoon = false }: { label: string, href?: string, active?: boolean, comingSoon?: boolean }) => {
+  const className = `flex items-center justify-between px-3.5 py-2.5 rounded-lg transition-all duration-150 border ${
+    active ? 'forge-nav-active' : comingSoon ? 'border-transparent opacity-40 cursor-not-allowed' : 'forge-nav-item border-transparent'
+  }`;
+  const content = (
+    <>
+      <span className="font-semibold text-sm">{label}</span>
+      {active ? (
+        <span className="w-2 h-2 rounded-full" style={{ background: 'var(--forge-accent)', boxShadow: '0 0 0 4px rgba(255,116,23,.10)' }} />
+      ) : comingSoon ? (
+        <span className="text-[9px] uppercase tracking-wider forge-muted font-black">Next</span>
+      ) : (
+        <span className="forge-muted text-xs">↗</span>
+      )}
+    </>
+  );
+
+  if (active || comingSoon || !href) return <div className={className}>{content}</div>;
+  return <a href={href} className={className}>{content}</a>;
+};
+
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { data, switchUser } = useForgeStore();
@@ -57,7 +78,15 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
-          <div className="px-3 pt-3 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">Main</div>
+          <div className="px-3 pt-2 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">Forge Suite</div>
+          <SuiteLink label="CRM" active />
+          <SuiteLink label="Reader" href="https://robquotes.vercel.app" />
+          <SuiteLink label="Scope" href="https://forge-scope.vercel.app" />
+          <SuiteLink label="Quote / AI Quoter" comingSoon />
+
+          <div className="mx-3 my-4 border-t" style={{ borderColor: 'var(--forge-border-soft)' }} />
+
+          <div className="px-3 pt-1 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">CRM</div>
           <SidebarLink to="/" icon={ICONS.Dashboard} label="Dashboard" />
           <SidebarLink to="/crm" icon={ICONS.Users} label="Contacts" />
           <SidebarLink to="/quotes" icon={ICONS.FileText} label="Quotes" />
