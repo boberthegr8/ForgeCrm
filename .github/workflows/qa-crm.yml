@@ -23,8 +23,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: vertical-saas-operations-platform---an-integrated-crm-+-project-&-operations-management-platform/package-lock.json
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
