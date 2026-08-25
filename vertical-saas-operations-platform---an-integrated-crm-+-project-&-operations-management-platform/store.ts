@@ -1,13 +1,26 @@
-
-import { useState, useEffect } from 'react';
-import { 
-  Customer, Quote, Project, Phase, Task, QuoteStatus, DailyTask, TodoCategory,
-  AppUser, DeliveryRequest, Delivery, DeliveryStatus, RequestStatus, UserRole, DeliveryWindow, LoadType
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  Customer, Quote, Project, Task, QuoteStatus, DailyTask,
+  AppUser, DeliveryRequest, Delivery, RequestStatus, UserRole
 } from './types';
 import { DEFAULT_PHASE_NAMES } from './constants';
 import { mergeQuoteBackfill } from './quoteBackfill';
+import { getForgeCoreClient } from './forgeCore';
+import {
+  loadForgeCoreSnapshot,
+  createCustomerInForgeCore,
+  updateCustomerInForgeCore,
+  createQuoteInForgeCore,
+  updateQuoteInForgeCore,
+  reviseQuoteInForgeCore,
+  convertQuoteToProjectInForgeCore,
+  createTaskInForgeCore,
+  updateTaskInForgeCore,
+  deleteTaskFromForgeCore
+} from './forgeCoreData';
 
 const STORAGE_KEY = 'forge_crm_data_v2';
+const PRE_CORE_BACKUP_KEY = 'forge_crm_data_v2_pre_core_backup';
 
 interface AppData {
   customers: Customer[];
@@ -20,252 +33,257 @@ interface AppData {
   currentUser: AppUser;
 }
 
+export interface CoreStoreState {
+  mode: 'loading' | 'core' | 'local' | 'error';
+  organizationName?: string;
+  locationName?: string;
+  lastLoadedAt?: string;
+  counts?: { customers: number; quotes: number; revisions: number; projects: number; tasks: number };
+  error?: string;
+}
+
+const LEGACY_USERS: AppUser[] = [
+  { id: 'u1', name: 'Admin User', email: 'admin@forge.com', role: 'ADMIN', isActive: true },
+  { id: 'u2', name: 'Sam Sales', email: 'sam@forge.com', role: 'SALES', isActive: true },
+  { id: 'u3', name: 'Dave Dispatch', email: 'dave@forge.com', role: 'DISPATCH', isActive: true },
+  { id: 'u4', name: 'Yanni Yard', email: 'yanni@forge.com', role: 'YARD', isActive: true }
+];
+
 const INITIAL_DATA: AppData = {
-  customers: [
-    {
-      id: 'c1',
-      firstName: 'Michael',
-      lastName: 'Scott',
-      company: 'Dunder Mifflin',
-      emails: ['m.scott@dundermifflin.com'],
-      phones: ['570-555-0123'],
-      address: '1725 Slough Avenue, Scranton, PA',
-      lastContactDate: '2024-05-15',
-      lastContactNotes: 'Discussed paper pallets for the new warehouse.',
-      childrenNames: [],
-      spouseName: 'Holly Scott',
-      importantDates: [{ label: 'Anniversary', date: '2011-03-24' }],
-      tags: ['Corporate', 'Active'],
-      status: 'active',
-      notes: 'Loves Dundies. Prefers AM deliveries.',
-      activityLog: [{ id: 'a1', date: '2024-05-15', type: 'call', content: 'Followed up on quote.' }]
-    },
-    {
-      id: 'c2',
-      firstName: 'Bob',
-      lastName: 'Vance',
-      company: 'Vance Refrigeration',
-      emails: ['bob@vancerefrigeration.com'],
-      phones: ['570-555-9999'],
-      address: 'Suite 200, Scranton Business Park',
-      lastContactDate: '2024-05-18',
-      lastContactNotes: 'Inquiry for custom shelving.',
-      childrenNames: [],
-      spouseName: 'Phyllis Vance',
-      importantDates: [],
-      tags: ['Industrial'],
-      status: 'quoted',
-      notes: 'High volume client.',
-      activityLog: []
-    }
-  ],
-  quotes: [
-    {
-      id: 'q1',
-      quoteNumber: 'Q-98210',
-      customerId: 'c1',
-      version: 1,
-      dateCreated: '2024-05-10',
-      scopeSummary: 'Custom Truss System - Phase 1',
-      lineItems: [],
-      totalValue: 24500,
-      margin: 18,
-      probability: 90,
-      status: 'approved',
-      poNumber: 'PO-SCOTT-01'
-    }
-  ],
-  projects: [
-    {
-      id: 'p1',
-      customerId: 'c1',
-      quoteId: 'q1',
-      projectName: 'Scott - Custom Truss System',
-      startDate: '2024-05-20',
-      targetCompletionDate: '2024-07-15',
-      currentPhase: 'Intake',
-      status: 'on track',
-      trussDeliveryDate: '2024-06-10',
-      floorSystemDeliveryDate: '2024-06-05',
-      shipDate: '2024-07-10',
-      phases: DEFAULT_PHASE_NAMES.map((name, i) => ({
-        id: `ph-${i}`,
-        projectId: 'p1',
-        name,
-        startDate: '2024-05-20',
-        targetEndDate: '2024-07-15',
-        completed: i === 0,
-        tasks: i === 0 ? [
-          { id: 't1', phaseId: 'ph-0', title: 'Verify site measurements', description: 'Ensure the pad is ready for trusses.', dueDate: '2024-05-22', priority: 'high', completed: true },
-          { id: 't2', phaseId: 'ph-0', title: 'Collect initial deposit', description: '50% required before production.', dueDate: '2024-05-25', priority: 'medium', completed: false }
-        ] : []
-      }))
-    }
-  ],
-  dailyTasks: [
-    { id: 'd1', title: 'Call Lumber yard re: order #44', category: 'Call', dueDate: '2024-05-21', completed: false, priority: 'high' },
-    { id: 'd2', title: 'Email back Bob Vance', category: 'Email', dueDate: '2024-05-21', completed: false, priority: 'medium' }
-  ],
-  users: [
-    { id: 'u1', name: 'Admin User', email: 'admin@forge.com', role: 'ADMIN', isActive: true },
-    { id: 'u2', name: 'Sam Sales', email: 'sam@forge.com', role: 'SALES', isActive: true },
-    { id: 'u3', name: 'Dave Dispatch', email: 'dave@forge.com', role: 'DISPATCH', isActive: true },
-    { id: 'u4', name: 'Yanni Yard', email: 'yanni@forge.com', role: 'YARD', isActive: true },
-  ],
-  deliveryRequests: [
-    {
-      id: 'req1',
-      projectId: 'p1',
-      customerId: 'c1',
-      requestedDate: '2024-06-01',
-      requestedWindow: 'AM',
-      notes: 'Gate code is 1234. Leave near the orange cones.',
-      createdByUserId: 'u2',
-      createdAt: '2024-05-20T10:00:00Z',
-      status: 'PENDING'
-    }
-  ],
-  deliveries: [
-    {
-      id: 'del1',
-      projectId: 'p1',
-      customerId: 'c1',
-      scheduledDate: new Date().toISOString().split('T')[0],
-      scheduledWindow: 'AM',
-      status: 'CONFIRMED',
-      loadType: 'BOOM',
-      truck: 'UNIT-404',
-      driver: 'Bill',
-      stopSequence: 1,
-      dispatchNotes: 'Check tires before leaving.',
-      yardNotes: '',
-      createdByUserId: 'u3',
-      updatedAt: new Date().toISOString()
-    }
-  ],
-  currentUser: { id: 'u2', name: 'Sam Sales', email: 'sam@forge.com', role: 'SALES', isActive: true }
+  customers: [],
+  quotes: [],
+  projects: [],
+  dailyTasks: [],
+  users: LEGACY_USERS,
+  deliveryRequests: [],
+  deliveries: [],
+  currentUser: LEGACY_USERS[1]
 };
 
-export function useForgeStore() {
-  const [data, setData] = useState<AppData>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+const newId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+function initialBrowserData(): AppData {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  try {
     return mergeQuoteBackfill(saved ? JSON.parse(saved) : INITIAL_DATA) as AppData;
-  });
+  } catch {
+    return mergeQuoteBackfill(INITIAL_DATA) as AppData;
+  }
+}
+
+function useForgeStoreState() {
+  const [data, setData] = useState<AppData>(initialBrowserData);
+  const [coreState, setCoreState] = useState<CoreStoreState>({ mode: 'loading' });
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
 
+  const refreshCore = useCallback(async () => {
+    try {
+      const snapshot = await loadForgeCoreSnapshot();
+      if (!snapshot) {
+        setCoreState({ mode: 'local' });
+        return false;
+      }
+
+      const currentRaw = localStorage.getItem(STORAGE_KEY);
+      if (currentRaw && !localStorage.getItem(PRE_CORE_BACKUP_KEY)) {
+        localStorage.setItem(PRE_CORE_BACKUP_KEY, currentRaw);
+      }
+
+      setData(previous => ({
+        ...previous,
+        customers: snapshot.customers as Customer[],
+        quotes: snapshot.quotes as Quote[],
+        projects: snapshot.projects as Project[],
+        dailyTasks: snapshot.dailyTasks as DailyTask[]
+      }));
+      setCoreState({
+        mode: 'core',
+        organizationName: snapshot.context.organizationName,
+        locationName: snapshot.context.locationName,
+        lastLoadedAt: new Date().toISOString(),
+        counts: snapshot.counts
+      });
+      return true;
+    } catch (error: any) {
+      console.error('Forge Core direct read failed; retaining browser fallback.', error);
+      setCoreState(previous => ({
+        ...previous,
+        mode: 'error',
+        error: error?.message || 'Forge Core could not be loaded.'
+      }));
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    let refreshTimer: number | undefined;
+
+    const safeRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => { if (!disposed) void refreshCore(); }, 80);
+    };
+
+    void refreshCore();
+    void getForgeCoreClient().then(client => {
+      if (disposed) return;
+      const auth = client.auth.onAuthStateChange(() => {
+        window.setTimeout(safeRefresh, 0);
+      });
+      unsubscribe = () => auth?.data?.subscription?.unsubscribe?.();
+    }).catch(error => console.warn('Forge Core auth listener unavailable', error));
+
+    const onCoreChanged = () => safeRefresh();
+    window.addEventListener('forge-core-changed', onCoreChanged);
+    return () => {
+      disposed = true;
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      unsubscribe?.();
+      window.removeEventListener('forge-core-changed', onCoreChanged);
+    };
+  }, [refreshCore]);
+
+  const queueCoreWrite = useCallback((operation: Promise<any> | null | undefined) => {
+    if (coreState.mode !== 'core' || !operation) return;
+    void operation.catch((error: any) => {
+      console.error('Forge Core write failed; optimistic browser state retained.', error);
+      setCoreState(previous => ({ ...previous, mode: 'error', error: error?.message || 'A Forge Core write failed.' }));
+    });
+  }, [coreState.mode]);
+
   const switchUser = (role: UserRole) => {
-    const user = data.users.find(u => u.role === role) || data.users[0];
-    setData(prev => ({ ...prev, currentUser: user }));
+    const user = data.users.find(user => user.role === role) || data.users[0];
+    setData(previous => ({ ...previous, currentUser: user }));
   };
 
   const createDeliveryRequest = (request: Omit<DeliveryRequest, 'id' | 'createdAt' | 'status' | 'createdByUserId'>) => {
     const newRequest: DeliveryRequest = {
       ...request,
-      id: Math.random().toString(36).substr(2, 9),
+      id: newId(),
       createdAt: new Date().toISOString(),
       status: 'PENDING',
       createdByUserId: data.currentUser.id
     };
-    setData(prev => ({ ...prev, deliveryRequests: [...prev.deliveryRequests, newRequest] }));
+    setData(previous => ({ ...previous, deliveryRequests: [...previous.deliveryRequests, newRequest] }));
     return newRequest;
   };
 
   const createDirectDelivery = (delivery: Omit<Delivery, 'id' | 'updatedAt' | 'createdByUserId' | 'stopSequence'>) => {
     const newDelivery: Delivery = {
       ...delivery,
-      id: Math.random().toString(36).substr(2, 9),
+      id: newId(),
       stopSequence: 1,
       createdByUserId: data.currentUser.id,
       updatedAt: new Date().toISOString()
     };
-    setData(prev => ({ ...prev, deliveries: [...prev.deliveries, newDelivery] }));
+    setData(previous => ({ ...previous, deliveries: [...previous.deliveries, newDelivery] }));
     return newDelivery;
   };
 
   const processRequest = (requestId: string, action: 'APPROVE' | 'DECLINE', deliveryData?: Partial<Delivery>) => {
-    setData(prev => {
-      const requests: DeliveryRequest[] = prev.deliveryRequests.map(r => 
-        r.id === requestId ? { ...r, status: (action === 'APPROVE' ? 'CONVERTED' : 'DECLINED') as RequestStatus } : r
+    setData(previous => {
+      const requests: DeliveryRequest[] = previous.deliveryRequests.map(request =>
+        request.id === requestId
+          ? { ...request, status: (action === 'APPROVE' ? 'CONVERTED' : 'DECLINED') as RequestStatus }
+          : request
       );
-      
-      const deliveries = [...prev.deliveries];
+      const deliveries = [...previous.deliveries];
       if (action === 'APPROVE') {
-        const req = prev.deliveryRequests.find(r => r.id === requestId);
-        if (req) {
+        const request = previous.deliveryRequests.find(item => item.id === requestId);
+        if (request) {
           deliveries.push({
-            id: Math.random().toString(36).substr(2, 9),
-            requestId: req.id,
-            projectId: req.projectId,
-            customerId: req.customerId,
-            scheduledDate: deliveryData?.scheduledDate || req.requestedDate,
-            scheduledWindow: deliveryData?.scheduledWindow || req.requestedWindow,
+            id: newId(),
+            requestId: request.id,
+            projectId: request.projectId,
+            customerId: request.customerId,
+            scheduledDate: deliveryData?.scheduledDate || request.requestedDate,
+            scheduledWindow: deliveryData?.scheduledWindow || request.requestedWindow,
             status: 'CONFIRMED',
             loadType: deliveryData?.loadType || 'FLATBED',
             stopSequence: 1,
-            dispatchNotes: deliveryData?.dispatchNotes || req.notes,
+            dispatchNotes: deliveryData?.dispatchNotes || request.notes,
             yardNotes: '',
-            createdByUserId: prev.currentUser.id,
+            createdByUserId: previous.currentUser.id,
             updatedAt: new Date().toISOString()
           });
         }
       }
-      return { ...prev, deliveryRequests: requests, deliveries };
+      return { ...previous, deliveryRequests: requests, deliveries };
     });
   };
 
   const updateDelivery = (id: string, updates: Partial<Delivery>) => {
-    setData(prev => ({
-      ...prev,
-      deliveries: prev.deliveries.map(d => 
-        d.id === id ? { ...d, ...updates, updatedAt: new Date().toISOString() } : d
+    setData(previous => ({
+      ...previous,
+      deliveries: previous.deliveries.map(delivery =>
+        delivery.id === id ? { ...delivery, ...updates, updatedAt: new Date().toISOString() } : delivery
       )
     }));
   };
 
   const addCustomer = (customer: Omit<Customer, 'id' | 'activityLog'>) => {
-    const newCustomer: Customer = { ...customer, id: Math.random().toString(36).substr(2, 9), activityLog: [] };
-    setData(prev => ({ ...prev, customers: [...prev.customers, newCustomer] }));
+    const newCustomer: Customer = { ...customer, id: newId(), activityLog: [] };
+    setData(previous => ({ ...previous, customers: [...previous.customers, newCustomer] }));
+    queueCoreWrite(createCustomerInForgeCore(newCustomer));
     return newCustomer;
   };
 
   const updateCustomer = (customer: Customer) => {
-    setData(prev => ({ ...prev, customers: prev.customers.map(c => c.id === customer.id ? customer : c) }));
+    setData(previous => ({ ...previous, customers: previous.customers.map(item => item.id === customer.id ? customer : item) }));
+    queueCoreWrite(updateCustomerInForgeCore(customer));
   };
 
   const addQuote = (quote: any) => {
-    const newQuote: Quote = { ...quote, id: Math.random().toString(36).substr(2, 9), quoteNumber: `Q-${Math.floor(Math.random() * 90000) + 10000}`, version: 1, dateCreated: new Date().toISOString().split('T')[0] };
-    setData(prev => ({ ...prev, quotes: [...prev.quotes, newQuote] }));
+    const newQuote: Quote = {
+      ...quote,
+      id: newId(),
+      quoteNumber: quote.quoteNumber || `Q-${Math.floor(Math.random() * 90000) + 10000}`,
+      version: 1,
+      dateCreated: quote.dateCreated || new Date().toISOString().split('T')[0]
+    };
+    setData(previous => ({ ...previous, quotes: [...previous.quotes, newQuote] }));
+    queueCoreWrite(createQuoteInForgeCore(newQuote));
     return newQuote;
   };
 
   const updateQuote = (quote: Quote) => {
-    setData(prev => ({ ...prev, quotes: prev.quotes.map(q => q.id === quote.id ? quote : q) }));
+    setData(previous => ({ ...previous, quotes: previous.quotes.map(item => item.id === quote.id ? quote : item) }));
+    queueCoreWrite(updateQuoteInForgeCore(quote));
   };
 
   const updateQuoteStatus = (quoteId: string, status: QuoteStatus, poNumber?: string) => {
-    setData(prev => ({ ...prev, quotes: prev.quotes.map(q => q.id === quoteId ? { ...q, status, poNumber: poNumber || q.poNumber } : q) }));
+    const current = data.quotes.find(quote => quote.id === quoteId);
+    if (!current) return;
+    const next = { ...current, status, poNumber: poNumber || current.poNumber };
+    setData(previous => ({ ...previous, quotes: previous.quotes.map(quote => quote.id === quoteId ? next : quote) }));
+    queueCoreWrite(updateQuoteInForgeCore(next));
   };
 
   const reviseQuote = (quoteId: string) => {
-    setData(prev => ({
-      ...prev,
-      quotes: prev.quotes.map(q => q.id === quoteId ? { ...q, status: 'revised', version: q.version + 1 } : q)
+    setData(previous => ({
+      ...previous,
+      quotes: previous.quotes.map(quote => quote.id === quoteId ? { ...quote, status: 'revised', version: quote.version + 1 } : quote)
     }));
+    queueCoreWrite(reviseQuoteInForgeCore(quoteId));
   };
 
   const convertQuoteToProject = (quoteId: string, logistics: any) => {
-    const quote = data.quotes.find(q => q.id === quoteId);
+    const quote = data.quotes.find(item => item.id === quoteId);
     if (!quote) return;
-    const customer = data.customers.find(c => c.id === quote.customerId);
-    const projectId = Math.random().toString(36).substr(2, 9);
+    const customer = data.customers.find(item => item.id === quote.customerId);
+    const projectId = newId();
+    const projectName = `${customer?.lastName || customer?.company || 'Client'} - ${quote.scopeSummary.substring(0, 30)}`;
     const newProject: Project = {
       id: projectId,
       customerId: quote.customerId,
       quoteId: quote.id,
-      projectName: `${customer?.lastName || 'Client'} - ${quote.scopeSummary.substring(0, 30)}`,
+      projectName,
       startDate: new Date().toISOString().split('T')[0],
       targetCompletionDate: logistics.shipDate || '',
       currentPhase: DEFAULT_PHASE_NAMES[0],
@@ -273,8 +291,8 @@ export function useForgeStore() {
       trussDeliveryDate: logistics.trussDeliveryDate,
       floorSystemDeliveryDate: logistics.floorSystemDeliveryDate,
       shipDate: logistics.shipDate,
-      phases: DEFAULT_PHASE_NAMES.map((name, i) => ({
-        id: Math.random().toString(36).substr(2, 9),
+      phases: DEFAULT_PHASE_NAMES.map(name => ({
+        id: newId(),
         projectId,
         name,
         startDate: '',
@@ -283,19 +301,26 @@ export function useForgeStore() {
         tasks: []
       }))
     };
-    setData(prev => ({ ...prev, projects: [...prev.projects, newProject], customers: prev.customers.map(c => c.id === quote.customerId ? { ...c, status: 'active' } : c) }));
+    setData(previous => ({
+      ...previous,
+      projects: [...previous.projects, newProject],
+      quotes: previous.quotes.map(item => item.id === quoteId ? { ...item, status: 'approved' } : item),
+      customers: previous.customers.map(item => item.id === quote.customerId ? { ...item, status: 'active' } : item)
+    }));
+    queueCoreWrite(convertQuoteToProjectInForgeCore(quoteId, projectId, projectName, logistics));
+    return newProject;
   };
 
   const updateTask = (projectId: string, phaseId: string, taskId: string, updates: Partial<Task>) => {
-    setData(prev => ({
-      ...prev,
-      projects: prev.projects.map(p => {
-        if (p.id !== projectId) return p;
+    setData(previous => ({
+      ...previous,
+      projects: previous.projects.map(project => {
+        if (project.id !== projectId) return project;
         return {
-          ...p,
-          phases: p.phases.map(ph => {
-            if (ph.id !== phaseId) return ph;
-            return { ...ph, tasks: ph.tasks.map(t => t.id === taskId ? { ...t, ...updates } : t) };
+          ...project,
+          phases: project.phases.map(phase => {
+            if (phase.id !== phaseId) return phase;
+            return { ...phase, tasks: phase.tasks.map(task => task.id === taskId ? { ...task, ...updates } : task) };
           })
         };
       })
@@ -303,36 +328,43 @@ export function useForgeStore() {
   };
 
   const addTask = (projectId: string, phaseId: string, task: Omit<Task, 'id' | 'phaseId'>) => {
-    const newTask: Task = { ...task, id: Math.random().toString(36).substr(2, 9), phaseId };
-    setData(prev => ({
-      ...prev,
-      projects: prev.projects.map(p => {
-        if (p.id !== projectId) return p;
+    const newTask: Task = { ...task, id: newId(), phaseId };
+    setData(previous => ({
+      ...previous,
+      projects: previous.projects.map(project => {
+        if (project.id !== projectId) return project;
         return {
-          ...p,
-          phases: p.phases.map(ph => {
-            if (ph.id !== phaseId) return ph;
-            return { ...ph, tasks: [...ph.tasks, newTask] };
-          })
+          ...project,
+          phases: project.phases.map(phase => phase.id === phaseId ? { ...phase, tasks: [...phase.tasks, newTask] } : phase)
         };
       })
     }));
   };
 
   const addDailyTask = (task: any) => {
-    setData(prev => ({ ...prev, dailyTasks: [...prev.dailyTasks, { ...task, id: Math.random().toString(36).substr(2, 9) }] }));
+    const newTask: DailyTask = { ...task, id: newId() };
+    setData(previous => ({ ...previous, dailyTasks: [...previous.dailyTasks, newTask] }));
+    queueCoreWrite(createTaskInForgeCore(newTask));
+    return newTask;
   };
 
   const toggleDailyTask = (taskId: string) => {
-    setData(prev => ({ ...prev, dailyTasks: prev.dailyTasks.map(t => t.id === taskId ? { ...t, completed: !t.completed } : t) }));
+    const current = data.dailyTasks.find(task => task.id === taskId);
+    if (!current) return;
+    const next = { ...current, completed: !current.completed };
+    setData(previous => ({ ...previous, dailyTasks: previous.dailyTasks.map(task => task.id === taskId ? next : task) }));
+    queueCoreWrite(updateTaskInForgeCore(next));
   };
 
   const deleteDailyTask = (taskId: string) => {
-    setData(prev => ({ ...prev, dailyTasks: prev.dailyTasks.filter(t => t.id !== taskId) }));
+    setData(previous => ({ ...previous, dailyTasks: previous.dailyTasks.filter(task => task.id !== taskId) }));
+    queueCoreWrite(deleteTaskFromForgeCore(taskId));
   };
 
-  return {
+  return useMemo(() => ({
     data,
+    coreState,
+    refreshCore,
     switchUser,
     createDeliveryRequest,
     createDirectDelivery,
@@ -350,5 +382,18 @@ export function useForgeStore() {
     addDailyTask,
     toggleDailyTask,
     deleteDailyTask
-  };
+  }), [data, coreState, refreshCore]);
+}
+
+const ForgeStoreContext = createContext<ReturnType<typeof useForgeStoreState> | null>(null);
+
+export function ForgeStoreProvider({ children }: { children: React.ReactNode }) {
+  const store = useForgeStoreState();
+  return React.createElement(ForgeStoreContext.Provider, { value: store }, children);
+}
+
+export function useForgeStore() {
+  const store = useContext(ForgeStoreContext);
+  if (!store) throw new Error('useForgeStore must be used inside ForgeStoreProvider.');
+  return store;
 }
