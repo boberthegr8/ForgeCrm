@@ -1,0 +1,47 @@
+name: Forge CRM QA
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  typecheck-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vertical-saas-operations-platform---an-integrated-crm-+-project-&-operations-management-platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: vertical-saas-operations-platform---an-integrated-crm-+-project-&-operations-management-platform/package-lock.json
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+      - name: Typecheck and build
+        run: npm run build
+      - name: Commit generated lockfile
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        working-directory: .
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add 'vertical-saas-operations-platform---an-integrated-crm-+-project-&-operations-management-platform/package-lock.json'
+          if ! git diff --cached --quiet; then
+            git commit -m "Lock Forge CRM dependencies"
+            git push
+          fi
