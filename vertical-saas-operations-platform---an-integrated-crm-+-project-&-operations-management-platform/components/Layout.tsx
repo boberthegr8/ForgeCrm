@@ -1,122 +1,118 @@
-
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useForgeStore } from '../store';
 import { ICONS } from '../constants';
 import { UserRole } from '../types';
 
-const SidebarLink = ({ to, icon: Icon, label, badge }: { to: string, icon: any, label: string, badge?: number }) => {
-  return (
-    <NavLink 
-      to={to} 
-      className={({ isActive }) => 
-        `flex items-center justify-between px-4 py-3 rounded-lg transition-all duration-200 ${
-          isActive 
-            ? 'bg-slate-800 text-white shadow-lg' 
-            : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-        }`
-      }
-    >
-      <div className="flex items-center gap-3">
-        <Icon className="w-5 h-5" />
-        <span className="font-medium">{label}</span>
-      </div>
-      {badge ? (
-        <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{badge}</span>
-      ) : null}
-    </NavLink>
-  );
-};
+const SidebarLink = ({ to, icon: Icon, label, badge }: { to: string, icon: any, label: string, badge?: number }) => (
+  <NavLink
+    to={to}
+    className={({ isActive }) =>
+      `flex items-center justify-between px-3.5 py-2.5 rounded-lg transition-all duration-150 border ${
+        isActive ? 'forge-nav-active' : 'forge-nav-item border-transparent'
+      }`
+    }
+  >
+    <div className="flex items-center gap-3">
+      <Icon className="w-[18px] h-[18px]" />
+      <span className="font-semibold text-sm">{label}</span>
+    </div>
+    {badge ? <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: 'var(--forge-accent)', color: '#111' }}>{badge}</span> : null}
+  </NavLink>
+);
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const { data, switchUser } = useForgeStore();
   const pageTitle = {
-    '/': 'Executive Dashboard',
-    '/crm': 'Customer Relations',
-    '/quotes': 'Quotes & Pipeline',
-    '/projects': 'Project Delivery',
-    '/checklist': 'Operational To-do list',
-    '/deliveries': 'Logistics & Delivery Board'
-  }[location.pathname] || 'Forge Nexus';
+    '/': 'Dashboard',
+    '/crm': 'Customers',
+    '/quotes': 'Quotes',
+    '/projects': 'Projects',
+    '/checklist': 'To-do List',
+    '/deliveries': 'Delivery Board'
+  }[location.pathname] || 'Forge CRM';
 
-  const pendingRequests = data.deliveryRequests.filter(r => r.status === 'PENDING').length;
+  const pendingRequests = data.deliveryRequests.filter(request => request.status === 'PENDING').length;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-900 flex-shrink-0 flex flex-col h-full z-20 shadow-2xl">
-        <div className="p-8 flex flex-col gap-2">
+    <div className="forge-shell flex h-screen overflow-hidden">
+      <aside className="forge-sidebar w-[270px] flex-shrink-0 flex flex-col h-full z-20">
+        <div className="px-5 pt-5 pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <ICONS.Briefcase className="w-6 h-6 text-white" />
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{ background: 'var(--forge-accent)', boxShadow: '0 10px 30px rgba(255,116,23,.18)' }}>
+              <ICONS.Briefcase className="w-5 h-5 text-black" />
             </div>
-            <h1 className="text-xl font-bold text-white tracking-tight">FORGE</h1>
+            <div>
+              <div className="text-lg font-black tracking-tight text-white leading-tight">FORGE</div>
+              <div className="text-[10px] uppercase tracking-[.22em] forge-muted font-black">CRM</div>
+            </div>
           </div>
-          <span className="text-[10px] text-slate-500 font-bold tracking-widest uppercase">Project Nexus</span>
+
+          <button type="button" className="forge-card mt-4 w-full px-3 py-2.5 text-left flex items-center justify-between text-xs font-semibold">
+            <span className="truncate">JK Hardware - Main</span>
+            <span className="forge-muted">⌄</span>
+          </button>
         </div>
 
-        <nav className="flex-1 px-4 space-y-1 mt-4 overflow-y-auto">
+        <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+          <div className="px-3 pt-3 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">Main</div>
           <SidebarLink to="/" icon={ICONS.Dashboard} label="Dashboard" />
-          <SidebarLink to="/crm" icon={ICONS.Users} label="CRM" />
+          <SidebarLink to="/crm" icon={ICONS.Users} label="Contacts" />
           <SidebarLink to="/quotes" icon={ICONS.FileText} label="Quotes" />
-          <SidebarLink to="/projects" icon={ICONS.Briefcase} label="Projects" />
-          
-          <div className="pt-4 pb-2 px-4">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Operations</span>
-          </div>
-          <SidebarLink to="/deliveries" icon={ICONS.Truck} label="Delivery Board" badge={pendingRequests} />
-          <SidebarLink to="/checklist" icon={ICONS.CheckSquare} label="To-do list" />
+          <SidebarLink to="/projects" icon={ICONS.Briefcase} label="Pipeline / Projects" />
+
+          <div className="px-3 pt-5 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">Operations</div>
+          <SidebarLink to="/checklist" icon={ICONS.CheckSquare} label="To-do List" />
+          <SidebarLink to="/deliveries" icon={ICONS.Truck} label="Delivery" badge={pendingRequests} />
         </nav>
 
-        {/* Role Switcher (For Demo purposes) */}
-        <div className="p-4 bg-slate-800/50 mx-4 mb-4 rounded-xl">
-           <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-2">Simulate Role</span>
-           <select 
-              value={data.currentUser.role}
-              onChange={(e) => switchUser(e.target.value as UserRole)}
-              className="w-full bg-slate-900 text-slate-300 text-xs font-bold p-2 rounded-lg border border-slate-700 outline-none"
-           >
-              <option value="ADMIN">Administrator</option>
-              <option value="DISPATCH">Dispatch Manager</option>
-              <option value="SALES">Sales Agent</option>
-              <option value="YARD">Yard Foreman</option>
-           </select>
+        <div className="mx-3 mb-3 forge-card p-3">
+          <span className="text-[9px] font-black forge-muted uppercase tracking-[.18em] block mb-2">Legacy role simulator</span>
+          <select
+            value={data.currentUser.role}
+            onChange={event => switchUser(event.target.value as UserRole)}
+            className="forge-input w-full text-xs font-bold p-2 rounded-lg"
+          >
+            <option value="ADMIN">Administrator</option>
+            <option value="DISPATCH">Dispatch Manager</option>
+            <option value="SALES">Sales Agent</option>
+            <option value="YARD">Yard Foreman</option>
+          </select>
         </div>
 
-        <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center gap-3 px-4 py-3 text-slate-400">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${
-              data.currentUser.role === 'ADMIN' ? 'bg-indigo-600' :
-              data.currentUser.role === 'DISPATCH' ? 'bg-rose-500' :
-              data.currentUser.role === 'SALES' ? 'bg-amber-500' : 'bg-emerald-500'
-            }`}>
+        <div className="p-4 border-t" style={{ borderColor: 'var(--forge-border-soft)' }}>
+          <div className="flex items-center gap-3 px-2 py-2">
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-black text-black" style={{ background: 'var(--forge-accent)' }}>
               {data.currentUser.name[0]}
             </div>
-            <div className="flex flex-col overflow-hidden">
-              <span className="text-sm font-semibold text-slate-200 truncate">{data.currentUser.name}</span>
-              <span className="text-[10px] font-bold text-slate-500 uppercase">{data.currentUser.role}</span>
+            <div className="flex flex-col overflow-hidden min-w-0">
+              <span className="text-sm font-semibold text-white truncate">{data.currentUser.name}</span>
+              <span className="text-[10px] font-black forge-muted uppercase tracking-wider">{data.currentUser.role}</span>
             </div>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 flex-shrink-0 z-10">
-          <h2 className="text-lg font-bold text-slate-800">{pageTitle}</h2>
-          <div className="flex items-center gap-4">
+        <header className="forge-topbar h-[72px] flex items-center justify-between px-7 flex-shrink-0 z-10">
+          <div>
+            <div className="text-[10px] uppercase tracking-[.2em] forge-muted font-black">Forge CRM</div>
+            <h2 className="text-xl font-black text-white leading-tight mt-0.5">{pageTitle}</h2>
+          </div>
+          <div className="flex items-center gap-3">
             <div className="relative group">
-              <ICONS.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-hover:text-slate-600 transition-colors" />
-              <input type="text" placeholder="Universal Search..." className="pl-9 pr-4 py-2 bg-slate-100 rounded-full text-sm border-none focus:ring-2 focus:ring-indigo-500 w-64 transition-all" />
+              <ICONS.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 forge-muted" />
+              <input type="text" placeholder="Search contacts, quotes…" className="forge-input pl-9 pr-4 py-2.5 rounded-xl text-sm w-72 transition-all" />
+            </div>
+            <div className="hidden xl:flex items-center gap-2 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-lg border" style={{ borderColor: 'rgba(255,116,23,.25)', color: 'var(--forge-accent)', background: 'var(--forge-accent-soft)' }}>
+              Core migration active
             </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 bg-slate-50/50">
-          <div className="max-w-[1600px] mx-auto">
-            {children}
-          </div>
+        <div className="forge-content flex-1 overflow-y-auto p-7">
+          <div className="max-w-[1680px] mx-auto">{children}</div>
         </div>
       </main>
     </div>
