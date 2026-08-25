@@ -1,0 +1,34 @@
+name: Link Live Forge Quoter
+
+on:
+  push:
+    branches:
+      - feature/live-quoter-nav
+    paths:
+      - scripts/link_live_quoter_nav.py
+      - .github/workflows/link-live-quoter-nav.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/live-quoter-nav
+      - name: Link live Forge Quoter
+        run: python scripts/link_live_quoter_nav.py
+      - name: Commit generated CRM nav change
+        run: |
+          if git diff --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add 'vertical-saas-operations-platform---an-integrated-crm-+-project-&-operations-management-platform/components/Layout.tsx'
+          git commit -m "Link live Forge Quoter from CRM"
+          git push
