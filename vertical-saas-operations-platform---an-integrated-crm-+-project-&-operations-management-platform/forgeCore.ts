@@ -60,6 +60,13 @@ export interface CoreQuoteCommitResult {
   reusedDocument: boolean;
 }
 
+interface PreparedDocument {
+  sha256: string;
+  existingDocumentId?: string;
+  storagePath?: string;
+  uploaded: boolean;
+}
+
 export async function getForgeCoreClient(): Promise<SupabaseClientLike> {
   if (!clientPromise) {
     clientPromise = import(/* @vite-ignore */ FORGE_CORE_CONFIG.supabaseJsUrl).then((module: any) => {
@@ -70,9 +77,7 @@ export async function getForgeCoreClient(): Promise<SupabaseClientLike> {
           autoRefreshToken: true,
           detectSessionInUrl: true
         },
-        global: {
-          headers: { 'x-forge-module': 'crm' }
-        }
+        global: { headers: { 'x-forge-module': 'crm' } }
       });
     });
   }
@@ -113,6 +118,7 @@ export async function getForgeCoreContext(): Promise<ForgeCoreContext | null> {
     .eq('status', 'active')
     .limit(10);
   if (membershipError) throw membershipError;
+
   if (!memberships?.length) {
     return {
       userId: session.user.id,
@@ -208,11 +214,11 @@ async function getBestCustomerMatch(client: SupabaseClientLike, context: ForgeCo
     .eq('organization_id', context.organizationId)
     .limit(2500);
   if (error) throw error;
-  const matches = (data || [])
+
+  return (data || [])
     .map((customer: any) => scoreCustomer(draft, customer))
     .filter((match: CoreCustomerMatch) => match.score > 0)
-    .sort((a: CoreCustomerMatch, b: CoreCustomerMatch) => b.score - a.score);
-  return matches[0];
+    .sort((a: CoreCustomerMatch, b: CoreCustomerMatch) => b.score - a.score)[0];
 }
 
 export async function previewQuoteAgainstForgeCore(draft: QuoteIntakeDraft): Promise<CoreQuotePreview> {
@@ -228,6 +234,7 @@ export async function previewQuoteAgainstForgeCore(draft: QuoteIntakeDraft): Pro
       : Promise.resolve({ data: null, error: null })
   ]);
   if (quoteResult.error) throw quoteResult.error;
+
   return {
     mode: 'ready',
     context,
@@ -251,248 +258,95 @@ function safeSegment(value: string) {
   return clean(value || 'unknown').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').slice(0, 120);
 }
 
-async function ensureDocument(client: SupabaseClientLike, context: ForgeCoreContext, draft: QuoteIntakeDraft, file: File) {
+async function prepareDocumentUpload(client: SupabaseClientLike, context: ForgeCoreContext, draft: QuoteIntakeDraft, file: File): Promise<PreparedDocument> {
   const sha256 = await sha256File(file);
-  const { data: existingDocument, error: documentLookupError } = await client
+  const { data: existingDocument, error: lookupError } = await client
     .from('documents')
-    .select('id, storage_bucket, storage_path')
+    .select('id')
     .eq('organization_id', context.organizationId)
     .eq('sha256', sha256)
     .maybeSingle();
-  if (documentLookupError) throw documentLookupError;
-  if (existingDocument) return { document: existingDocument, reused: true };
+  if (lookupError) throw lookupError;
+  if (existingDocument) return { sha256, existingDocumentId: existingDocument.id, uploaded: false };
 
   const quoteFolder = safeSegment(draft.quoteNumber || 'unassigned');
-  const fileName = `${crypto.randomUUID()}-${safeSegment(file.name)}`;
-  const storagePath = `${context.organizationId}/quotes/${quoteFolder}/${fileName}`;
+  const storagePath = `${context.organizationId}/quotes/${quoteFolder}/${crypto.randomUUID()}-${safeSegment(file.name)}`;
   const { error: uploadError } = await client.storage
     .from(FORGE_CORE_CONFIG.documentBucket)
     .upload(storagePath, file, { contentType: file.type || 'application/pdf', upsert: false });
   if (uploadError) throw uploadError;
 
-  const { data: document, error: insertError } = await client
-    .from('documents')
-    .insert({
-      organization_id: context.organizationId,
-      location_id: context.locationId || null,
-      document_type: 'quote',
-      title: draft.quoteNumber ? `Quote ${draft.quoteNumber}` : file.name,
-      original_filename: file.name,
-      storage_bucket: FORGE_CORE_CONFIG.documentBucket,
-      storage_path: storagePath,
-      mime_type: file.type || 'application/pdf',
-      file_size_bytes: file.size,
-      sha256,
-      status: 'uploaded',
-      source: 'forge-crm-quote-intake',
-      metadata: { quote_number: draft.quoteNumber, extraction: 'browser-pdf-text-v1' },
-      created_by: context.userId
-    })
-    .select('id, storage_bucket, storage_path')
-    .single();
-  if (insertError) {
-    await client.storage.from(FORGE_CORE_CONFIG.documentBucket).remove([storagePath]);
-    throw insertError;
-  }
-  return { document, reused: false };
+  return { sha256, storagePath, uploaded: true };
 }
 
-async function resolveCustomer(client: SupabaseClientLike, context: ForgeCoreContext, draft: QuoteIntakeDraft, options: CoreQuoteCommitOptions) {
-  if (options.customerIdOverride) {
-    const { data, error } = await client.from('customers').select('id').eq('organization_id', context.organizationId).eq('id', options.customerIdOverride).single();
-    if (error) throw error;
-    return { customerId: data.id, created: false };
-  }
-
-  const best = await getBestCustomerMatch(client, context, draft);
-  if (!options.forceCreateCustomer && best && best.score >= 70) return { customerId: best.id, created: false };
-
-  const displayName = clean(draft.customerName) || `Customer ${clean(draft.customerNumber)}`;
-  const { data, error } = await client
-    .from('customers')
-    .insert({
-      organization_id: context.organizationId,
-      location_id: context.locationId || null,
-      display_name: displayName,
-      phone: clean(draft.phone) || null,
-      address: draft.address ? { formatted: clean(draft.address) } : {},
-      source: 'forge-crm-quote-intake',
-      metadata: draft.customerNumber ? { external_customer_number: clean(draft.customerNumber) } : {},
-      created_by: context.userId
-    })
-    .select('id')
-    .single();
-  if (error) throw error;
-  return { customerId: data.id, created: true };
-}
-
-async function resolveProject(client: SupabaseClientLike, context: ForgeCoreContext, draft: QuoteIntakeDraft, customerId: string) {
-  const projectName = clean(draft.projectName);
-  if (!projectName) return { projectId: undefined, created: false };
-  const { data: existing, error: lookupError } = await client
-    .from('projects')
-    .select('id')
-    .eq('organization_id', context.organizationId)
-    .eq('customer_id', customerId)
-    .ilike('name', projectName)
-    .maybeSingle();
-  if (lookupError) throw lookupError;
-  if (existing) return { projectId: existing.id, created: false };
-
-  const { data, error } = await client
-    .from('projects')
-    .insert({
-      organization_id: context.organizationId,
-      location_id: context.locationId || null,
-      customer_id: customerId,
-      name: projectName,
-      status: 'quoted',
-      address: draft.address ? { formatted: clean(draft.address) } : {},
-      source: 'forge-crm-quote-intake',
-      created_by: context.userId
-    })
-    .select('id')
-    .single();
-  if (error) throw error;
-  return { projectId: data.id, created: true };
+async function removeUploadedFile(client: SupabaseClientLike, prepared: PreparedDocument) {
+  if (!prepared.uploaded || !prepared.storagePath) return;
+  const { error } = await client.storage.from(FORGE_CORE_CONFIG.documentBucket).remove([prepared.storagePath]);
+  if (error) console.warn('Forge could not clean up an uncommitted PDF upload', error);
 }
 
 export async function commitQuoteToForgeCore(draft: QuoteIntakeDraft, file: File, options: CoreQuoteCommitOptions = {}): Promise<CoreQuoteCommitResult> {
   const context = await getForgeCoreContext();
   if (!context) throw new Error('Sign in to Forge Core before importing this quote.');
   if (!context.organizationId) throw new Error('Your Forge Core account exists but is not assigned to an organization yet.');
+  if (context.role === 'viewer') throw new Error('Your Forge Core role is read-only.');
 
   const client = await getForgeCoreClient();
-  const documentResult = await ensureDocument(client, context, draft, file);
-  const customerResult = await resolveCustomer(client, context, draft, options);
-  const projectResult = await resolveProject(client, context, draft, customerResult.customerId);
+  const prepared = await prepareDocumentUpload(client, context, draft, file);
 
-  await client.from('documents').update({
-    customer_id: customerResult.customerId,
-    project_id: projectResult.projectId || null
-  }).eq('id', documentResult.document.id).eq('organization_id', context.organizationId);
-
-  const { data: existingQuote, error: quoteLookupError } = await client
-    .from('quotes')
-    .select('id, current_revision')
-    .eq('organization_id', context.organizationId)
-    .eq('quote_number', clean(draft.quoteNumber))
-    .maybeSingle();
-  if (quoteLookupError) throw quoteLookupError;
-
-  let quoteId: string;
-  let revisionNumber = 0;
-  let createdQuote = false;
-  if (existingQuote) {
-    quoteId = existingQuote.id;
-    revisionNumber = Number(existingQuote.current_revision || 0) + 1;
-    const { error: updateQuoteError } = await client.from('quotes').update({
-      customer_id: customerResult.customerId,
-      project_id: projectResult.projectId || null,
-      location_id: context.locationId || null,
-      current_revision: revisionNumber,
-      title: clean(draft.projectName) || `Quote ${clean(draft.quoteNumber)}`,
-      subtotal: draft.subtotal,
-      total: draft.subtotal,
-      quote_date: draft.quoteDate || null,
-      source_document_id: documentResult.document.id,
-      source: 'forge-crm-quote-intake',
-      updated_at: new Date().toISOString()
-    }).eq('id', quoteId).eq('organization_id', context.organizationId);
-    if (updateQuoteError) throw updateQuoteError;
-  } else {
-    const { data: quote, error: insertQuoteError } = await client.from('quotes').insert({
-      organization_id: context.organizationId,
-      location_id: context.locationId || null,
-      customer_id: customerResult.customerId,
-      project_id: projectResult.projectId || null,
-      quote_number: clean(draft.quoteNumber),
-      status: 'sent',
-      current_revision: 0,
-      title: clean(draft.projectName) || `Quote ${clean(draft.quoteNumber)}`,
-      currency: 'CAD',
-      subtotal: draft.subtotal,
-      total: draft.subtotal,
-      quote_date: draft.quoteDate || null,
-      source_document_id: documentResult.document.id,
-      source: 'forge-crm-quote-intake',
-      metadata: { original_filename: draft.fileName },
-      created_by: context.userId
-    }).select('id').single();
-    if (insertQuoteError) throw insertQuoteError;
-    quoteId = quote.id;
-    createdQuote = true;
+  let customerId = options.customerIdOverride;
+  if (!customerId && !options.forceCreateCustomer) {
+    const best = await getBestCustomerMatch(client, context, draft);
+    if (best?.score >= 70) customerId = best.id;
   }
 
-  const { error: revisionError } = await client.from('quote_revisions').insert({
-    organization_id: context.organizationId,
-    quote_id: quoteId,
-    revision_number: revisionNumber,
-    document_id: documentResult.document.id,
-    subtotal: draft.subtotal,
-    total: draft.subtotal,
-    description: clean(draft.projectName) || null,
-    raw_items: [],
-    metadata: { original_filename: draft.fileName },
-    created_by: context.userId
-  });
-  if (revisionError) throw revisionError;
-
-  const activityTitle = createdQuote ? `Quote ${draft.quoteNumber} imported` : `Quote ${draft.quoteNumber} revision ${revisionNumber} imported`;
-  const { error: activityError } = await client.from('activities').insert({
-    organization_id: context.organizationId,
-    location_id: context.locationId || null,
-    customer_id: customerResult.customerId,
-    project_id: projectResult.projectId || null,
-    quote_id: quoteId,
-    activity_type: createdQuote ? 'quote_imported' : 'quote_revised',
-    title: activityTitle,
-    body: `${clean(draft.projectName) || 'No project name'} — $${draft.subtotal.toFixed(2)} before tax`,
-    metadata: { source: 'desktop-pdf' },
-    created_by: context.userId
-  });
-  if (activityError) console.warn('Forge Core activity write failed', activityError);
-
-  if (createdQuote) {
-    const due = new Date(`${draft.quoteDate || new Date().toISOString().slice(0, 10)}T12:00:00`);
-    due.setDate(due.getDate() + 7);
-    const { error: taskError } = await client.from('tasks').insert({
-      organization_id: context.organizationId,
-      location_id: context.locationId || null,
-      customer_id: customerResult.customerId,
-      project_id: projectResult.projectId || null,
-      assigned_to: context.userId,
-      title: `Follow up — ${clean(draft.customerName || draft.customerNumber)} — ${draft.quoteNumber}`,
-      status: 'open',
-      priority: 'normal',
-      due_at: due.toISOString(),
-      metadata: { quote_id: quoteId, source: 'quote-intake' },
-      created_by: context.userId
-    });
-    if (taskError) console.warn('Forge Core follow-up task write failed', taskError);
-  }
-
-  await client.from('events').insert({
-    organization_id: context.organizationId,
-    location_id: context.locationId || null,
-    entity_type: 'quote',
-    entity_id: quoteId,
-    action: createdQuote ? 'created_from_pdf' : 'revision_added_from_pdf',
-    payload: { revision_number: revisionNumber, document_id: documentResult.document.id },
-    source: 'forge-crm-quote-intake',
-    actor_user_id: context.userId
-  });
-
-  return {
-    organizationId: context.organizationId,
-    customerId: customerResult.customerId,
-    projectId: projectResult.projectId,
-    quoteId,
-    revisionNumber,
-    documentId: documentResult.document.id,
-    createdCustomer: customerResult.created,
-    createdProject: projectResult.created,
-    createdQuote,
-    reusedDocument: documentResult.reused
+  const customerData = {
+    display_name: clean(draft.customerName) || (draft.customerNumber ? `Customer ${clean(draft.customerNumber)}` : ''),
+    phone: clean(draft.phone) || null,
+    external_customer_number: clean(draft.customerNumber) || null,
+    address: draft.address ? { formatted: clean(draft.address) } : {}
   };
+
+  try {
+    const { data, error } = await client.rpc('commit_quote_intake_v1', {
+      p_organization_id: context.organizationId,
+      p_location_id: context.locationId || null,
+      p_quote_number: clean(draft.quoteNumber),
+      p_quote_date: draft.quoteDate || null,
+      p_subtotal: draft.subtotal,
+      p_original_filename: file.name,
+      p_existing_document_id: prepared.existingDocumentId || null,
+      p_storage_bucket: FORGE_CORE_CONFIG.documentBucket,
+      p_storage_path: prepared.storagePath || null,
+      p_mime_type: file.type || 'application/pdf',
+      p_file_size_bytes: file.size,
+      p_sha256: prepared.sha256,
+      p_customer_id: customerId || null,
+      p_customer_data: customerData,
+      p_project_name: clean(draft.projectName) || null,
+      p_project_address: draft.address ? { formatted: clean(draft.address) } : {}
+    });
+    if (error) throw error;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.quote_id || !row?.document_id) throw new Error('Forge Core did not return a completed quote transaction.');
+
+    if (prepared.uploaded && row.reused_document) await removeUploadedFile(client, prepared);
+
+    return {
+      organizationId: row.organization_id,
+      customerId: row.customer_id,
+      projectId: row.project_id || undefined,
+      quoteId: row.quote_id,
+      revisionNumber: Number(row.revision_number || 0),
+      documentId: row.document_id,
+      createdCustomer: Boolean(row.created_customer),
+      createdProject: Boolean(row.created_project),
+      createdQuote: Boolean(row.created_quote),
+      reusedDocument: Boolean(row.reused_document)
+    };
+  } catch (error) {
+    await removeUploadedFile(client, prepared);
+    throw error;
+  }
 }
