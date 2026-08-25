@@ -3,10 +3,8 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { installForgeSuiteBridge } from './forgeSuiteBridge';
-import { installForgeWhiteAmMigration } from './legacyForgeWhiteAmBootstrap';
 
 installForgeSuiteBridge();
-installForgeWhiteAmMigration();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
