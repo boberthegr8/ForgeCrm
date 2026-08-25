@@ -193,7 +193,7 @@ function importScope(scope: any) {
   }
 
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) throw new Error('Forge CRM has not been initialized in this browser yet.');
+  if (!raw) throw new Error('FORGE_CRM_NOT_READY');
 
   const data = JSON.parse(raw);
   const customer = ensureCustomer(data, scope);
@@ -208,6 +208,27 @@ function importScope(scope: any) {
   };
 }
 
+function processScopeMessage(message: any, attempt = 0) {
+  try {
+    const result = importScope(message.scope);
+    sessionStorage.setItem(
+      'forge_suite_bridge_result',
+      `Forge Scope imported into CRM.\n\nCustomer: ${result.customer}\nProject: ${result.project}`
+    );
+    window.location.hash = '/projects';
+    window.location.reload();
+  } catch (error: any) {
+    if (error?.message === 'FORGE_CRM_NOT_READY' && attempt < 20) {
+      setTimeout(() => processScopeMessage(message, attempt + 1), 150);
+      return;
+    }
+    const detail = error?.message === 'FORGE_CRM_NOT_READY'
+      ? 'Forge CRM could not initialize its local data store.'
+      : (error?.message || 'Unknown error');
+    window.alert(`Forge Scope could not be imported: ${detail}`);
+  }
+}
+
 export function installForgeSuiteBridge() {
   const previousResult = sessionStorage.getItem('forge_suite_bridge_result');
   if (previousResult) {
@@ -220,24 +241,15 @@ export function installForgeSuiteBridge() {
     const message = event.data;
     if (!message || message.protocol !== BRIDGE_PROTOCOL || message.version !== BRIDGE_VERSION) return;
     if (message.action !== 'scope.upsert') return;
-
-    try {
-      const result = importScope(message.scope);
-      sessionStorage.setItem(
-        'forge_suite_bridge_result',
-        `Forge Scope imported into CRM.\n\nCustomer: ${result.customer}\nProject: ${result.project}`
-      );
-      window.location.hash = '/projects';
-      window.location.reload();
-    } catch (error: any) {
-      window.alert(`Forge Scope could not be imported: ${error?.message || 'Unknown error'}`);
-    }
+    processScopeMessage(message);
   });
 
   if (window.opener && !window.opener.closed) {
-    window.opener.postMessage(
-      { protocol: BRIDGE_PROTOCOL, version: BRIDGE_VERSION, action: 'crm.ready' },
-      '*'
-    );
+    setTimeout(() => {
+      window.opener?.postMessage(
+        { protocol: BRIDGE_PROTOCOL, version: BRIDGE_VERSION, action: 'crm.ready' },
+        '*'
+      );
+    }, 500);
   }
 }
