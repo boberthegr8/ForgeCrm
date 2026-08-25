@@ -1,18 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { ForgeCoreContext, getForgeCoreContext, signOutOfForgeCore } from '../forgeCore';
-import {
-  getForgeCoreRecordCounts,
-  restorePreCoreBrowserBackup,
-  sendForgeCoreMagicLink,
-  syncForgeCoreToBrowser
-} from '../forgeCoreAuth';
+import { sendForgeCoreMagicLink } from '../forgeCoreAuth';
+import { useForgeStore } from '../store';
 
 export const CoreAccountControl: React.FC = () => {
+  const { coreState, refreshCore } = useForgeStore();
   const [context, setContext] = useState<ForgeCoreContext | null>(null);
-  const [counts, setCounts] = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState('rob.flagg1234@gmail.com');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -20,19 +16,16 @@ export const CoreAccountControl: React.FC = () => {
   const refresh = async () => {
     setLoading(true);
     try {
-      const next = await getForgeCoreContext();
-      setContext(next);
-      setCounts(next?.organizationId ? await getForgeCoreRecordCounts() : null);
+      setContext(await getForgeCoreContext());
     } catch (err: any) {
       setContext(null);
-      setCounts(null);
       setError(err?.message || 'Forge Core status could not be loaded.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void refresh(); }, [coreState.mode]);
 
   const sendLink = async () => {
     setBusy(true);
@@ -54,8 +47,8 @@ export const CoreAccountControl: React.FC = () => {
     try {
       await signOutOfForgeCore();
       setContext(null);
-      setCounts(null);
-      setMessage('Signed out of Forge Core. The local CRM backup remains on this browser.');
+      setMessage('Signed out of Forge Core. This browser keeps its local fallback copy.');
+      await refreshCore();
     } catch (err: any) {
       setError(err?.message || 'Could not sign out.');
     } finally {
@@ -63,33 +56,17 @@ export const CoreAccountControl: React.FC = () => {
     }
   };
 
-  const syncCore = async () => {
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const result = await syncForgeCoreToBrowser();
-      setMessage(`Core synced: ${result.counts.customers} customers, ${result.counts.quotes} quotes, ${result.counts.projects} projects and ${result.counts.tasks} tasks. Reloading Forge…`);
-      window.setTimeout(() => window.location.reload(), 900);
-    } catch (err: any) {
-      setError(err?.message || 'Forge Core could not sync to this browser.');
-      setBusy(false);
-    }
-  };
-
-  const restoreBackup = () => {
-    setError('');
-    try {
-      restorePreCoreBrowserBackup();
-      window.location.reload();
-    } catch (err: any) {
-      setError(err?.message || 'No browser backup could be restored.');
-    }
-  };
-
-  const connected = Boolean(context?.organizationId);
+  const connected = Boolean(context?.organizationId) && coreState.mode === 'core';
   const signedIn = Boolean(context);
-  const statusLabel = loading ? 'CORE…' : connected ? 'CORE CONNECTED' : signedIn ? 'CORE UNASSIGNED' : 'CORE SIGN IN';
+  const statusLabel = loading || coreState.mode === 'loading'
+    ? 'CORE…'
+    : connected
+      ? 'CORE LIVE'
+      : coreState.mode === 'error'
+        ? 'CORE ERROR'
+        : signedIn
+          ? 'CORE UNASSIGNED'
+          : 'CORE SIGN IN';
 
   return (
     <>
@@ -113,14 +90,15 @@ export const CoreAccountControl: React.FC = () => {
             <div className="px-6 py-5 border-b flex items-start justify-between gap-4" style={{ borderColor: 'var(--forge-border-soft)', background: 'var(--forge-sidebar)' }}>
               <div>
                 <div className="text-[10px] uppercase tracking-[.2em] forge-accent font-black">Forge Core</div>
-                <h2 className="text-xl font-black text-white mt-1">Suite account</h2>
-                <p className="text-xs forge-secondary mt-1">Passwordless Forge identity and shared Core data.</p>
+                <h2 className="text-xl font-black text-white mt-1">Live suite connection</h2>
+                <p className="text-xs forge-secondary mt-1">CRM now reads Core directly. Browser storage is fallback/cache only.</p>
               </div>
               <button type="button" onClick={() => setOpen(false)} className="forge-secondary hover:text-white text-2xl">×</button>
             </div>
 
             <div className="p-6 space-y-4">
               {error && <div className="rounded-xl border border-red-900/60 bg-red-950/35 p-3 text-sm text-red-300">{error}</div>}
+              {coreState.error && <div className="rounded-xl border border-red-900/60 bg-red-950/35 p-3 text-sm text-red-300">{coreState.error}</div>}
               {message && <div className="rounded-xl border border-emerald-900/60 bg-emerald-950/30 p-3 text-sm text-emerald-300">{message}</div>}
 
               {connected ? (
@@ -128,43 +106,40 @@ export const CoreAccountControl: React.FC = () => {
                   <div className="forge-card p-4">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <div className="text-sm font-black text-white">{context?.organizationName}</div>
-                        <div className="text-xs forge-secondary mt-1">{context?.locationName || 'No location'} • {context?.role}</div>
+                        <div className="text-sm font-black text-white">{coreState.organizationName || context?.organizationName}</div>
+                        <div className="text-xs forge-secondary mt-1">{coreState.locationName || context?.locationName || 'No location'} • {context?.role}</div>
                         <div className="text-xs forge-muted mt-1">{context?.email}</div>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(34,197,94,.1)', color: 'var(--forge-success)' }}>Connected</span>
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(34,197,94,.1)', color: 'var(--forge-success)' }}>Live</span>
                     </div>
-                    {counts && (
-                      <div className="grid grid-cols-4 gap-2 mt-4">
-                        {Object.entries(counts).map(([label, value]) => (
+                    {coreState.counts && (
+                      <div className="grid grid-cols-5 gap-2 mt-4">
+                        {Object.entries(coreState.counts).map(([label, value]) => (
                           <div key={label} className="rounded-lg border p-2 text-center" style={{ borderColor: 'var(--forge-border-soft)' }}>
                             <div className="text-base font-black text-white">{value}</div>
-                            <div className="text-[9px] uppercase forge-muted">{label}</div>
+                            <div className="text-[8px] uppercase forge-muted">{label}</div>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                  <button type="button" disabled={busy} onClick={() => void syncCore()} className="forge-button-primary w-full rounded-xl px-4 py-3 text-sm disabled:opacity-50">Sync Core to this browser</button>
-                  <div className="grid grid-cols-2 gap-3">
-                    <button type="button" disabled={busy} onClick={restoreBackup} className="forge-button-secondary rounded-xl px-4 py-3 text-xs font-black disabled:opacity-50">Restore browser backup</button>
-                    <button type="button" disabled={busy} onClick={() => void signOut()} className="forge-button-secondary rounded-xl px-4 py-3 text-xs font-black disabled:opacity-50">Sign out</button>
-                  </div>
-                  <p className="text-[11px] forge-muted">The first Core sync saves your existing <code>forge_crm_data_v2</code> snapshot locally before replacing the CRM view. The backup is not deleted.</p>
+                  <button type="button" disabled={busy} onClick={() => void refreshCore()} className="forge-button-primary w-full rounded-xl px-4 py-3 text-sm disabled:opacity-50">Refresh Core now</button>
+                  <button type="button" disabled={busy} onClick={() => void signOut()} className="forge-button-secondary w-full rounded-xl px-4 py-3 text-xs font-black disabled:opacity-50">Sign out</button>
+                  <p className="text-[11px] forge-muted">Customer, quote, revision, project and to-do screens are loaded from Forge Core after sign-in. Existing browser data remains as a recovery copy and is never deleted by this connection.</p>
                 </div>
               ) : signedIn ? (
                 <div className="rounded-xl border border-amber-900/60 bg-amber-950/25 p-4 text-sm text-amber-200">
-                  <div className="font-black">Signed in, but no organization is assigned</div>
-                  <div className="mt-1 text-xs">This identity cannot access business records until an organization membership exists.</div>
+                  <div className="font-black">Signed in, but Core is not ready</div>
+                  <div className="mt-1 text-xs">This identity must have an active organization membership before business records can load.</div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <div className="rounded-xl border p-3 text-xs forge-secondary" style={{ borderColor: 'var(--forge-border-soft)' }}>
-                    Rob is already provisioned as the proof-of-concept owner. Enter the owner email and Forge will send a secure one-time sign-in link. No password is stored or required.
+                    Rob is provisioned as the proof-of-concept owner. Forge sends a secure one-time sign-in link; no password is required.
                   </div>
                   <label className="block">
                     <span className="text-[10px] uppercase tracking-wider font-black forge-secondary">Owner email</span>
-                    <input value={email} onChange={event => setEmail(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void sendLink(); }} type="email" autoComplete="email" className="forge-input w-full mt-1.5 rounded-xl px-4 py-3 text-sm" placeholder="you@company.com" />
+                    <input value={email} onChange={event => setEmail(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void sendLink(); }} type="email" autoComplete="email" className="forge-input w-full mt-1.5 rounded-xl px-4 py-3 text-sm" />
                   </label>
                   <button type="button" disabled={busy || !email.trim()} onClick={() => void sendLink()} className="forge-button-primary w-full rounded-xl px-4 py-3 text-sm disabled:opacity-50">Send passwordless sign-in link</button>
                 </div>
