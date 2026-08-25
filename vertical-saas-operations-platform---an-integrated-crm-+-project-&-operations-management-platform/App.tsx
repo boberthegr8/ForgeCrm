@@ -8,6 +8,7 @@ import { QuoteNexus } from './components/QuoteNexus';
 import { ProjectNexus } from './components/ProjectNexus';
 import { DailyChecklist } from './components/DailyChecklist';
 import { DeliveryBoard } from './components/DeliveryBoard';
+import { QuoteIntakeDock } from './components/QuoteIntakeDock';
 
 const App: React.FC = () => {
   return (
@@ -22,6 +23,7 @@ const App: React.FC = () => {
           <Route path="/checklist" element={<DailyChecklist />} />
         </Routes>
       </Layout>
+      <QuoteIntakeDock />
     </HashRouter>
   );
 };
