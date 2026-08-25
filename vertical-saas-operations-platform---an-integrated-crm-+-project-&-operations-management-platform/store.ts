@@ -5,6 +5,7 @@ import {
   AppUser, DeliveryRequest, Delivery, DeliveryStatus, RequestStatus, UserRole, DeliveryWindow, LoadType
 } from './types';
 import { DEFAULT_PHASE_NAMES } from './constants';
+import { mergeQuoteBackfill } from './quoteBackfill';
 
 const STORAGE_KEY = 'forge_crm_data_v2';
 
@@ -148,7 +149,7 @@ const INITIAL_DATA: AppData = {
 export function useForgeStore() {
   const [data, setData] = useState<AppData>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : INITIAL_DATA;
+    return mergeQuoteBackfill(saved ? JSON.parse(saved) : INITIAL_DATA) as AppData;
   });
 
   useEffect(() => {
