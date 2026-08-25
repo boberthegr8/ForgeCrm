@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { useForgeStore } from '../store';
 import { ICONS } from '../constants';
 import { UserRole } from '../types';
+import { CoreAccountControl } from './CoreAccountControl';
 
 const SidebarLink = ({ to, icon: Icon, label, badge }: { to: string, icon: any, label: string, badge?: number }) => (
   <NavLink
@@ -101,13 +102,11 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <h2 className="text-xl font-black text-white leading-tight mt-0.5">{pageTitle}</h2>
           </div>
           <div className="flex items-center gap-3">
-            <div className="relative group">
+            <div className="relative group hidden lg:block">
               <ICONS.Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 forge-muted" />
               <input type="text" placeholder="Search contacts, quotes…" className="forge-input pl-9 pr-4 py-2.5 rounded-xl text-sm w-72 transition-all" />
             </div>
-            <div className="hidden xl:flex items-center gap-2 text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-lg border" style={{ borderColor: 'rgba(255,116,23,.25)', color: 'var(--forge-accent)', background: 'var(--forge-accent-soft)' }}>
-              Core migration active
-            </div>
+            <CoreAccountControl />
           </div>
         </header>
 
