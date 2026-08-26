@@ -80,10 +80,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
           <div className="px-3 pt-2 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">Forge Suite</div>
+          <SuiteLink label="Home" href="https://forge2-navy.vercel.app" />
           <SuiteLink label="CRM" active />
           <SuiteLink label="Reader" href="https://robquotes.vercel.app" />
           <SuiteLink label="Scope" href="https://forge-scope.vercel.app" />
           <SuiteLink label="Quote / AI Quoter" href="https://lumber-estimator-ai.vercel.app" />
+          <SuiteLink label="Manufacturing" href="https://forgemfg.vercel.app" />
+          <SuiteLink label="Portal" comingSoon />
 
           <div className="mx-3 my-4 border-t" style={{ borderColor: 'var(--forge-border-soft)' }} />
 
