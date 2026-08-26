@@ -86,7 +86,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <SuiteLink label="Scope" href="https://forge-scope.vercel.app" />
           <SuiteLink label="Quote / AI Quoter" href="https://lumber-estimator-ai.vercel.app" />
           <SuiteLink label="Manufacturing" href="https://forgemfg.vercel.app" />
-          <SuiteLink label="Portal" comingSoon />
+          <SuiteLink label="Portal" href="https://forge-portal-pi.vercel.app" />
 
           <div className="mx-3 my-4 border-t" style={{ borderColor: 'var(--forge-border-soft)' }} />
 
