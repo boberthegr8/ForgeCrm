@@ -72,16 +72,13 @@ export async function getForgeCoreClient(): Promise<SupabaseClientLike> {
     clientPromise = import(/* @vite-ignore */ FORGE_CORE_CONFIG.supabaseJsUrl).then((module: any) => {
       if (!module?.createClient) throw new Error('Forge Core client could not be loaded.');
       return module.createClient(FORGE_CORE_CONFIG.url, FORGE_CORE_CONFIG.publishableKey, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: true
-        },
+        auth: (window as any).ForgeSuite?.auth || { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
         global: { headers: { 'x-forge-module': 'crm' } }
       });
     });
   }
-  return clientPromise;
+  const client = await clientPromise;
+  return (window as any).ForgeSuite ? (window as any).ForgeSuite.connect(client) : client;
 }
 
 export async function signInToForgeCore(email: string, password: string) {

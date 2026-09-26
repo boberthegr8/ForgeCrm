@@ -4,7 +4,6 @@ import {
   AppUser, DeliveryRequest, Delivery, RequestStatus, UserRole
 } from './types';
 import { DEFAULT_PHASE_NAMES } from './constants';
-import { mergeQuoteBackfill } from './quoteBackfill';
 import { getForgeCoreClient } from './forgeCore';
 import {
   loadForgeCoreSnapshot,
@@ -65,11 +64,12 @@ const newId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID ==
   : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 function initialBrowserData(): AppData {
+  if ((window as any).ForgeSuite?.managed) return INITIAL_DATA;
   const saved = localStorage.getItem(STORAGE_KEY);
   try {
-    return mergeQuoteBackfill(saved ? JSON.parse(saved) : INITIAL_DATA) as AppData;
+    return (saved ? JSON.parse(saved) : INITIAL_DATA) as AppData;
   } catch {
-    return mergeQuoteBackfill(INITIAL_DATA) as AppData;
+    return INITIAL_DATA as AppData;
   }
 }
 
@@ -78,13 +78,14 @@ function useForgeStoreState() {
   const [coreState, setCoreState] = useState<CoreStoreState>({ mode: 'loading' });
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    if (!(window as any).ForgeSuite?.managed) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
 
   const refreshCore = useCallback(async () => {
     try {
       const snapshot = await loadForgeCoreSnapshot();
       if (!snapshot) {
+        if ((window as any).ForgeSuite?.managed) setData(INITIAL_DATA);
         setCoreState({ mode: 'local' });
         return false;
       }
@@ -96,6 +97,7 @@ function useForgeStoreState() {
 
       setData(previous => ({
         ...previous,
+        currentUser: { id: snapshot.context.userId, name: snapshot.context.email, email: snapshot.context.email, role: ['owner','admin'].includes(snapshot.context.role) ? 'ADMIN' : snapshot.context.role === 'operations' ? 'DISPATCH' : 'SALES', isActive: true },
         customers: snapshot.customers as Customer[],
         quotes: snapshot.quotes as Quote[],
         projects: snapshot.projects as Project[],
@@ -158,6 +160,7 @@ function useForgeStoreState() {
   }, [coreState.mode]);
 
   const switchUser = (role: UserRole) => {
+    if ((window as any).ForgeSuite?.managed) return;
     const user = data.users.find(user => user.role === role) || data.users[0];
     setData(previous => ({ ...previous, currentUser: user }));
   };

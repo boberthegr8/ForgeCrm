@@ -11,7 +11,7 @@ export async function sendForgeCoreMagicLink(email: string) {
   const cleanEmail = email.trim();
   if (!cleanEmail) throw new Error('Enter your Forge email address.');
   const client = await getForgeCoreClient();
-  const redirectTo = `${window.location.origin}${window.location.pathname}`;
+  const redirectTo = 'https://app.forgehub.dev/account.html';
   const { data, error } = await client.auth.signInWithOtp({
     email: cleanEmail,
     options: {

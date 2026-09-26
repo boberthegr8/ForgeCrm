@@ -80,13 +80,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
         <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
           <div className="px-3 pt-2 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">Forge Suite</div>
-          <SuiteLink label="Home" href="https://forge2-navy.vercel.app" />
+          <SuiteLink label="Home" href="https://app.forgehub.dev" />
           <SuiteLink label="CRM" active />
-          <SuiteLink label="Reader" href="https://robquotes.vercel.app" />
-          <SuiteLink label="Scope" href="https://forge-scope.vercel.app" />
-          <SuiteLink label="Quote / AI Quoter" href="https://lumber-estimator-ai.vercel.app" />
-          <SuiteLink label="Manufacturing" href="https://forgemfg.vercel.app" />
-          <SuiteLink label="Portal" href="https://forge-portal-pi.vercel.app" />
+          <SuiteLink label="Reader" href="https://reader.forgehub.dev" />
+          <SuiteLink label="Scope" href="https://scope.forgehub.dev" />
+          <SuiteLink label="Quote / AI Quoter" href="https://quote.forgehub.dev" />
+          <SuiteLink label="Manufacturing" href="https://manufacturing.forgehub.dev" />
+          <SuiteLink label="Portal" href="https://portal.forgehub.dev" />
 
           <div className="mx-3 my-4 border-t" style={{ borderColor: 'var(--forge-border-soft)' }} />
 
@@ -104,7 +104,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <SidebarLink to="/deliveries" icon={ICONS.Truck} label="Delivery" badge={pendingRequests} />
         </nav>
 
-        <div className="mx-3 mb-3 forge-card p-3">
+        <div className="mx-3 mb-3 forge-card p-3" hidden={Boolean((window as any).ForgeSuite?.managed)}>
           <span className="text-[9px] font-black forge-muted uppercase tracking-[.18em] block mb-2">Legacy role simulator</span>
           <select
             value={data.currentUser.role}

@@ -3,7 +3,7 @@ const BRIDGE_PROTOCOL = 'forge-suite-bridge';
 const BRIDGE_VERSION = 1;
 
 const TRUSTED_SCOPE_ORIGINS = [
-  'https://forge-scope.vercel.app',
+  'https://scope.forgehub.dev',
   'https://forge-scope-boberts-projects-baa7bcf5.vercel.app',
 ];
 
@@ -230,6 +230,7 @@ function processScopeMessage(message: any, attempt = 0) {
 }
 
 export function installForgeSuiteBridge() {
+  if ((window as any).ForgeSuite?.managed) return;
   const previousResult = sessionStorage.getItem('forge_suite_bridge_result');
   if (previousResult) {
     sessionStorage.removeItem('forge_suite_bridge_result');
