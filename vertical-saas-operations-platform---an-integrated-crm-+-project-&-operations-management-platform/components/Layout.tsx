@@ -62,7 +62,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     <div className="forge-shell flex h-screen overflow-hidden">
       <aside className="forge-sidebar w-[270px] flex-shrink-0 flex flex-col h-full z-20">
         <div className="px-5 pt-5 pb-4">
-          <div className="flex items-center gap-3">
+          <a href="https://app.forgehub.dev/" aria-label="Back to Forge Home" title="Back to Forge Home" style={{color: 'inherit', textDecoration: 'none'}} className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg" style={{ background: 'var(--forge-accent)', boxShadow: '0 10px 30px rgba(255,116,23,.18)' }}>
               <ICONS.Briefcase className="w-5 h-5 text-black" />
             </div>
@@ -70,7 +70,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div className="text-lg font-black tracking-tight text-white leading-tight">FORGE</div>
               <div className="text-[10px] uppercase tracking-[.22em] forge-muted font-black">CRM</div>
             </div>
-          </div>
+          </a>
 
           <button type="button" className="forge-card mt-4 w-full px-3 py-2.5 text-left flex items-center justify-between text-xs font-semibold">
             <span className="truncate">JK Hardware - Main</span>
