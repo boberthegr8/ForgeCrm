@@ -88,6 +88,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <SuiteLink label="Manufacturing" href="https://manufacturing.forgehub.dev" />
           <SuiteLink label="Portal" href="https://portal.forgehub.dev" />
           <SuiteLink label="Frame · 3D Takeoff" href="https://frame.forgehub.dev" />
+          <SuiteLink label="To Do" href="https://todo.forgehub.dev" />
 
           <div className="mx-3 my-4 border-t" style={{ borderColor: 'var(--forge-border-soft)' }} />
 
