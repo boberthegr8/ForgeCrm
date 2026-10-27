@@ -3,7 +3,8 @@
   const hub = 'https://app.forgehub.dev';
   const origins = ['https://crm.forgehub.dev','https://scope.forgehub.dev',
     'https://reader.forgehub.dev','https://quote.forgehub.dev',
-    'https://manufacturing.forgehub.dev','https://portal.forgehub.dev'];
+    'https://manufacturing.forgehub.dev','https://portal.forgehub.dev',
+    'https://frame.forgehub.dev','https://todo.forgehub.dev'];
   const managed = origins.includes(location.origin);
 
   const SHARED_KEY = 'forge-core-auth';
