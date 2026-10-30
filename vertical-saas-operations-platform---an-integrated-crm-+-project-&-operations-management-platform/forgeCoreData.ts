@@ -23,22 +23,7 @@ function probabilityForStatus(status: string) {
   }
 }
 
-function taskCategory(title: string) {
-  if (/call/i.test(title)) return 'Call';
-  if (/email|send/i.test(title)) return 'Email';
-  if (/quote/i.test(title)) return 'Quote';
-  if (/take.?off/i.test(title)) return 'Take off';
-  if (/design/i.test(title)) return 'Design';
-  if (/dispatch/i.test(title)) return 'Dispatching';
-  if (/schedule/i.test(title)) return 'Scheduling';
-  return 'General';
-}
 
-function corePriority(priority: string) {
-  if (priority === 'high') return 'high';
-  if (priority === 'low') return 'low';
-  return 'normal';
-}
 
 function crmPriority(priority: string) {
   if (priority === 'high') return 'high';
@@ -111,13 +96,13 @@ export interface ForgeCoreSnapshot {
   customers: any[];
   quotes: any[];
   projects: any[];
-  dailyTasks: any[];
+
   counts: {
     customers: number;
     quotes: number;
     revisions: number;
     projects: number;
-    tasks: number;
+
   };
 }
 
@@ -126,20 +111,19 @@ export async function loadForgeCoreSnapshot(): Promise<ForgeCoreSnapshot | null>
   if (!context?.organizationId) return null;
   const client = await getForgeCoreClient();
 
-  const [customerResult, quoteResult, revisionResult, projectResult, taskResult] = await Promise.all([
+  const [customerResult, quoteResult, revisionResult, projectResult] = await Promise.all([
     client.from('customers').select('*').eq('organization_id', context.organizationId).order('display_name'),
     client.from('quotes').select('*').eq('organization_id', context.organizationId).order('quote_date', { ascending: false }),
     client.from('quote_revisions').select('*').eq('organization_id', context.organizationId).order('revision_number'),
-    client.from('projects').select('*').eq('organization_id', context.organizationId).order('created_at', { ascending: false }),
-    client.from('tasks').select('*').eq('organization_id', context.organizationId).order('created_at', { ascending: false })
+    client.from('projects').select('*').eq('organization_id', context.organizationId).order('created_at', { ascending: false })
   ]);
-  for (const result of [customerResult, quoteResult, revisionResult, projectResult, taskResult]) if (result.error) throw result.error;
+  for (const result of [customerResult, quoteResult, revisionResult, projectResult]) if (result.error) throw result.error;
 
   const coreCustomers = customerResult.data || [];
   const coreQuotes = quoteResult.data || [];
   const coreRevisions = revisionResult.data || [];
   const coreProjects = projectResult.data || [];
-  const coreTasks = taskResult.data || [];
+
   const projectCustomerIds = new Set(coreProjects.map((project: any) => project.customer_id).filter(Boolean));
   const quotedCustomerIds = new Set(coreQuotes.map((quote: any) => quote.customer_id).filter(Boolean));
   const quoteByProject = new Map(coreQuotes.filter((quote: any) => quote.project_id).map((quote: any) => [quote.project_id, quote]));
@@ -228,28 +212,19 @@ export async function loadForgeCoreSnapshot(): Promise<ForgeCoreSnapshot | null>
     };
   });
 
-  const dailyTasks = coreTasks.map((task: any) => ({
-    id: task.id,
-    title: task.title,
-    category: task.metadata?.category || taskCategory(task.title),
-    dueDate: task.due_at ? String(task.due_at).slice(0, 10) : '',
-    completed: task.status === 'completed',
-    priority: crmPriority(task.priority),
-    coreProjectId: task.project_id || undefined
-  }));
+
 
   return {
     context,
     customers,
     quotes,
     projects,
-    dailyTasks,
+
     counts: {
       customers: customers.length,
       quotes: quotes.length,
       revisions: coreRevisions.length,
-      projects: projects.length,
-      tasks: dailyTasks.length
+      projects: projects.length
     }
   };
 }
@@ -315,52 +290,9 @@ export async function updateCustomerInForgeCore(customer: any) {
   return true;
 }
 
-export async function createTaskInForgeCore(task: any) {
-  const core = await requireCore();
-  if (!core) return null;
-  const { data, error } = await core.client.from('tasks').insert({
-    id: task.id,
-    organization_id: core.context.organizationId,
-    location_id: core.context.locationId || null,
-    assigned_to: core.context.userId,
-    title: task.title,
-    status: task.completed ? 'completed' : 'open',
-    priority: corePriority(task.priority),
-    due_at: task.dueDate || null,
-    completed_at: task.completed ? new Date().toISOString() : null,
-    metadata: { category: task.category || 'General' },
-    source: 'forge-crm',
-    created_by: core.context.userId
-  }).select('id').single();
-  if (error) throw error;
-  window.dispatchEvent(new CustomEvent('forge-core-changed', { detail: { entity: 'task', id: data.id } }));
-  return data;
-}
 
-export async function updateTaskInForgeCore(task: any) {
-  const core = await requireCore();
-  if (!core) return null;
-  const { error } = await core.client.from('tasks').update({
-    title: task.title,
-    status: task.completed ? 'completed' : 'open',
-    priority: corePriority(task.priority),
-    due_at: task.dueDate || null,
-    completed_at: task.completed ? new Date().toISOString() : null,
-    metadata: { category: task.category || 'General' }
-  }).eq('id', task.id).eq('organization_id', core.context.organizationId);
-  if (error) throw error;
-  window.dispatchEvent(new CustomEvent('forge-core-changed', { detail: { entity: 'task', id: task.id } }));
-  return true;
-}
 
-export async function deleteTaskFromForgeCore(taskId: string) {
-  const core = await requireCore();
-  if (!core) return null;
-  const { error } = await core.client.from('tasks').delete().eq('id', taskId).eq('organization_id', core.context.organizationId);
-  if (error) throw error;
-  window.dispatchEvent(new CustomEvent('forge-core-changed', { detail: { entity: 'task', id: taskId } }));
-  return true;
-}
+
 
 export async function updateQuoteInForgeCore(quote: any) {
   const core = await requireCore();

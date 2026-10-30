@@ -12,10 +12,7 @@ import {
   createQuoteInForgeCore,
   updateQuoteInForgeCore,
   reviseQuoteInForgeCore,
-  convertQuoteToProjectInForgeCore,
-  createTaskInForgeCore,
-  updateTaskInForgeCore,
-  deleteTaskFromForgeCore
+  convertQuoteToProjectInForgeCore
 } from './forgeCoreData';
 
 const STORAGE_KEY = 'forge_crm_data_v2';
@@ -25,6 +22,8 @@ interface AppData {
   customers: Customer[];
   quotes: Quote[];
   projects: Project[];
+  // Retained for historical browser records and existing quote-intake follow-ups.
+  // Not displayed, synchronized or mutated by the retired standalone Todo feature.
   dailyTasks: DailyTask[];
   users: AppUser[];
   deliveryRequests: DeliveryRequest[];
@@ -37,7 +36,7 @@ export interface CoreStoreState {
   organizationName?: string;
   locationName?: string;
   lastLoadedAt?: string;
-  counts?: { customers: number; quotes: number; revisions: number; projects: number; tasks: number };
+  counts?: { customers: number; quotes: number; revisions: number; projects: number };
   error?: string;
 }
 
@@ -100,8 +99,7 @@ function useForgeStoreState() {
         currentUser: { id: snapshot.context.userId, name: snapshot.context.email, email: snapshot.context.email, role: ['owner','admin'].includes(snapshot.context.role) ? 'ADMIN' : snapshot.context.role === 'operations' ? 'DISPATCH' : 'SALES', isActive: true },
         customers: snapshot.customers as Customer[],
         quotes: snapshot.quotes as Quote[],
-        projects: snapshot.projects as Project[],
-        dailyTasks: snapshot.dailyTasks as DailyTask[]
+        projects: snapshot.projects as Project[]
       }));
       setCoreState({
         mode: 'core',
@@ -344,25 +342,7 @@ function useForgeStoreState() {
     }));
   };
 
-  const addDailyTask = (task: any) => {
-    const newTask: DailyTask = { ...task, id: newId() };
-    setData(previous => ({ ...previous, dailyTasks: [...previous.dailyTasks, newTask] }));
-    queueCoreWrite(createTaskInForgeCore(newTask));
-    return newTask;
-  };
 
-  const toggleDailyTask = (taskId: string) => {
-    const current = data.dailyTasks.find(task => task.id === taskId);
-    if (!current) return;
-    const next = { ...current, completed: !current.completed };
-    setData(previous => ({ ...previous, dailyTasks: previous.dailyTasks.map(task => task.id === taskId ? next : task) }));
-    queueCoreWrite(updateTaskInForgeCore(next));
-  };
-
-  const deleteDailyTask = (taskId: string) => {
-    setData(previous => ({ ...previous, dailyTasks: previous.dailyTasks.filter(task => task.id !== taskId) }));
-    queueCoreWrite(deleteTaskFromForgeCore(taskId));
-  };
 
   return useMemo(() => ({
     data,
@@ -381,10 +361,7 @@ function useForgeStoreState() {
     reviseQuote,
     convertQuoteToProject,
     updateTask,
-    addTask,
-    addDailyTask,
-    toggleDailyTask,
-    deleteDailyTask
+    addTask
   }), [data, coreState, refreshCore]);
 }
 

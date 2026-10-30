@@ -113,7 +113,7 @@ export const CoreAccountControl: React.FC = () => {
                       <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-lg" style={{ background: 'rgba(34,197,94,.1)', color: 'var(--forge-success)' }}>Live</span>
                     </div>
                     {coreState.counts && (
-                      <div className="grid grid-cols-5 gap-2 mt-4">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
                         {Object.entries(coreState.counts).map(([label, value]) => (
                           <div key={label} className="rounded-lg border p-2 text-center" style={{ borderColor: 'var(--forge-border-soft)' }}>
                             <div className="text-base font-black text-white">{value}</div>
@@ -125,7 +125,7 @@ export const CoreAccountControl: React.FC = () => {
                   </div>
                   <button type="button" disabled={busy} onClick={() => void refreshCore()} className="forge-button-primary w-full rounded-xl px-4 py-3 text-sm disabled:opacity-50">Refresh Core now</button>
                   <button type="button" disabled={busy} onClick={() => void signOut()} className="forge-button-secondary w-full rounded-xl px-4 py-3 text-xs font-black disabled:opacity-50">Sign out</button>
-                  <p className="text-[11px] forge-muted">Customer, quote, revision, project and to-do screens are loaded from Forge Core after sign-in. Existing browser data remains as a recovery copy and is never deleted by this connection.</p>
+                  <p className="text-[11px] forge-muted">Customer, quote, revision and project screens are loaded from Forge Core after sign-in. Existing browser data remains as a recovery copy and is never deleted by this connection.</p>
                 </div>
               ) : signedIn ? (
                 <div className="rounded-xl border border-amber-900/60 bg-amber-950/25 p-4 text-sm text-amber-200">

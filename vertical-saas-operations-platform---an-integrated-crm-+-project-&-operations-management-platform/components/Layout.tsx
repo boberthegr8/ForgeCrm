@@ -52,7 +52,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     '/quotes': 'Quotes',
     '/projects': 'Projects',
     '/purchasing': 'Purchasing',
-    '/checklist': 'To-do List',
+    '/checklist': 'Dedicated Todo',
     '/deliveries': 'Delivery Board'
   }[location.pathname] || 'Forge CRM';
 
@@ -102,7 +102,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <SidebarLink to="/purchasing" icon={ICONS.FileText} label="Purchasing / POs" />
 
           <div className="px-3 pt-5 pb-1 text-[10px] font-black uppercase tracking-[.18em] forge-muted">Operations</div>
-          <SidebarLink to="/checklist" icon={ICONS.CheckSquare} label="To-do List" />
+
           <SidebarLink to="/deliveries" icon={ICONS.Truck} label="Delivery" badge={pendingRequests} />
         </nav>
 

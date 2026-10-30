@@ -5,7 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { CustomerCRM } from './components/CustomerCRM';
 import { QuoteNexus } from './components/QuoteNexus';
 import { ProjectNexus } from './components/ProjectNexus';
-import { DailyChecklist } from './components/DailyChecklist';
+import { TodoRetired } from './components/TodoRetired';
 import { DeliveryBoard } from './components/DeliveryBoard';
 import { PurchasingBoard } from './components/PurchasingBoard';
 import { QuoteIntakeDock } from './components/QuoteIntakeDock';
@@ -23,7 +23,7 @@ const App: React.FC = () => {
             <Route path="/projects" element={<ProjectNexus />} />
             <Route path="/purchasing" element={<PurchasingBoard />} />
             <Route path="/deliveries" element={<DeliveryBoard />} />
-            <Route path="/checklist" element={<DailyChecklist />} />
+            <Route path="/checklist/*" element={<TodoRetired />} />
           </Routes>
         </Layout>
         <QuoteIntakeDock />

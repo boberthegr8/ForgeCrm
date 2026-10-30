@@ -1,32 +1,10 @@
 
 import React from 'react';
-import { UserRole, TodoCategory } from './types';
+
 
 export const DEFAULT_PHASE_NAMES = ["Intake", "Design", "Estimating", "Contract Signed", "Pre-Construction", "Ordering", "Execution", "Completion"];
 
-export const ROLE_TODO_CATEGORIES: Record<UserRole, TodoCategory[]> = {
-  SALES: ['Email', 'Call', 'Quote', 'Take off', 'Design', 'General'],
-  YARD: ['Build Load', 'Restock', 'Clean up', 'Inventory', 'Maintenance', 'General'],
-  DISPATCH: ['Dispatching', 'Scheduling', 'Fleet', 'General'],
-  ADMIN: ['Email', 'Call', 'Quote', 'Take off', 'Design', 'Build Load', 'Restock', 'Clean up', 'Inventory', 'Maintenance', 'Dispatching', 'Scheduling', 'Fleet', 'General']
-};
 
-export const CATEGORY_COLORS: Record<string, string> = {
-  Email: 'bg-blue-400',
-  Call: 'bg-indigo-400',
-  Quote: 'bg-emerald-400',
-  'Take off': 'bg-rose-400',
-  Design: 'bg-purple-400',
-  'Build Load': 'bg-orange-400',
-  Restock: 'bg-cyan-400',
-  'Clean up': 'bg-amber-400',
-  Inventory: 'bg-slate-400',
-  Maintenance: 'bg-lime-400',
-  Dispatching: 'bg-indigo-600',
-  Scheduling: 'bg-sky-600',
-  Fleet: 'bg-zinc-600',
-  General: 'bg-slate-300'
-};
 
 export const LOAD_TYPE_COLORS = {
   BOOM: 'bg-rose-500',
