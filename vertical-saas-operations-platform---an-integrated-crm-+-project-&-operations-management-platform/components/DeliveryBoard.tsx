@@ -15,16 +15,38 @@ type BoardView = 'DAY' | 'WEEK' | 'MONTH' | 'REQUESTS';
 const STATUS: CoreDeliveryStatus[] = ['planned', 'confirmed', 'picked', 'loaded', 'in_transit', 'delivered', 'cancelled'];
 const LOAD_TYPES = ['Lumber', 'Roof / Truss', 'EWP', 'Siding', 'Drywall', 'Hardware', 'Vendor Inbound', 'Other'];
 
-const dayKey = (value?: string) => value ? new Date(value).toISOString().slice(0, 10) : '';
+const pad = (value: number) => String(value).padStart(2, '0');
+// Scheduling follows this device's local timezone, consistently with datetime-local.
+const localZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const dayKey = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+const localInput = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(value);
+  return `${dayKey(value)}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
 const timeText = (value?: string) => value ? new Intl.DateTimeFormat('en-CA', { hour: 'numeric', minute: '2-digit' }).format(new Date(value)) : 'Unscheduled';
 const dateText = (value: string) => new Intl.DateTimeFormat('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${value}T12:00:00`));
+const monthCells = (value: string): (string | null)[] => {
+  const date = new Date(`${value}T12:00:00`);
+  const first = new Date(date.getFullYear(), date.getMonth(), 1);
+  const offset = (first.getDay() + 6) % 7; // Monday first, matching week view.
+  const count = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  return Array.from({ length: Math.ceil((offset + count) / 7) * 7 }, (_, index) => {
+    const day = index - offset + 1;
+    return day < 1 || day > count ? null : dayKey(new Date(date.getFullYear(), date.getMonth(), day).toISOString());
+  });
+};
 const statusLabel = (value: string) => value.replace(/_/g, ' ').toUpperCase();
 
 export const DeliveryBoard: React.FC = () => {
   const { data } = useForgeStore();
   const [workspace, setWorkspace] = useState<OperationsWorkspace>({ context: null, projects: [], quotes: [], purchaseOrders: [], deliveries: [] });
   const [view, setView] = useState<BoardView>('DAY');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(dayKey(new Date().toISOString()));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -67,18 +89,14 @@ export const DeliveryBoard: React.FC = () => {
     return Array.from({ length: 7 }, (_, i) => {
       const next = new Date(date);
       next.setDate(date.getDate() + i);
-      return next.toISOString().slice(0, 10);
+      return dayKey(next.toISOString());
     });
   }, [selectedDate]);
 
-  const monthDays = useMemo(() => {
-    const date = new Date(`${selectedDate}T12:00:00`);
-    const count = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    return Array.from({ length: count }, (_, index) => new Date(date.getFullYear(), date.getMonth(), index + 1).toISOString().slice(0, 10));
-  }, [selectedDate]);
+  const monthDays = useMemo(() => monthCells(selectedDate), [selectedDate]);
 
   const metrics = useMemo(() => ({
-    today: deliveriesForDate(new Date().toISOString().slice(0, 10)).length,
+    today: deliveriesForDate(dayKey(new Date().toISOString())).length,
     inbound: workspace.deliveries.filter(item => item.direction === 'inbound' && !['delivered', 'cancelled'].includes(item.status)).length,
     outbound: workspace.deliveries.filter(item => item.direction === 'outbound' && !['delivered', 'cancelled'].includes(item.status)).length,
     inTransit: workspace.deliveries.filter(item => item.status === 'in_transit').length
@@ -152,7 +170,7 @@ export const DeliveryBoard: React.FC = () => {
         <div className="forge-card px-3 py-2"><div className="text-[9px] uppercase forge-muted font-black">Truck</div><div className="text-xs text-white font-bold mt-1">{delivery.truck || 'Unassigned'}</div></div>
         <div className="forge-card px-3 py-2"><div className="text-[9px] uppercase forge-muted font-black">Driver</div><div className="text-xs text-white font-bold mt-1">{delivery.driver || 'Unassigned'}</div></div>
       </div>
-      <button onClick={() => setEditing(delivery)} className="forge-button-secondary px-3 py-2 rounded-lg text-xs font-bold">Edit</button>
+      <button onClick={() => { setError(''); setEditing(delivery); }} className="forge-button-secondary px-3 py-2 rounded-lg text-xs font-bold">Edit</button>
     </div>
   );
 
@@ -178,9 +196,25 @@ export const DeliveryBoard: React.FC = () => {
 
     {view === 'DAY' && <div className="space-y-3">{dayDeliveries.length ? dayDeliveries.map(delivery => <DeliveryCard key={delivery.id} delivery={delivery} />) : <div className="forge-card p-16 text-center"><ICONS.Truck className="w-12 h-12 forge-muted mx-auto" /><h3 className="text-lg font-black text-white mt-4">No Core deliveries on {dateText(selectedDate)}</h3><p className="forge-muted text-sm mt-2">Schedule an outbound project load or inbound vendor delivery.</p></div>}</div>}
 
-    {view === 'WEEK' && <div className="grid md:grid-cols-2 xl:grid-cols-7 gap-3">{weekDays.map(day => <div className="forge-card p-3 min-h-64" key={day}><button onClick={() => { setSelectedDate(day); setView('DAY'); }} className="w-full text-left"><div className="text-[10px] uppercase forge-muted font-black">{dateText(day)}</div><div className="text-xl font-black text-white mt-1">{deliveriesForDate(day).length}</div></button><div className="space-y-2 mt-4">{deliveriesForDate(day).slice(0, 6).map(item => <button key={item.id} onClick={() => setEditing(item)} className="w-full text-left border rounded-lg p-2" style={{ borderColor: 'var(--forge-border-soft)' }}><div className="text-xs font-bold text-white truncate">{item.projectName || item.vendorName || item.poNumber || 'Delivery'}</div><div className="text-[9px] forge-muted mt-1">{timeText(item.scheduledStart)} • {statusLabel(item.status)}</div></button>)}</div></div>)}</div>}
+    {view === 'WEEK' && <div className="grid md:grid-cols-2 xl:grid-cols-7 gap-3">{weekDays.map(day => <div className="forge-card p-3 min-h-64" key={day}><button onClick={() => { setSelectedDate(day); setView('DAY'); }} className="w-full text-left"><div className="text-[10px] uppercase forge-muted font-black">{dateText(day)}</div><div className="text-xl font-black text-white mt-1">{deliveriesForDate(day).length}</div></button><div className="space-y-2 mt-4">{deliveriesForDate(day).slice(0, 6).map(item => <button key={item.id} onClick={() => { setError(''); setEditing(item); }} className="w-full text-left border rounded-lg p-2" style={{ borderColor: 'var(--forge-border-soft)' }}><div className="text-xs font-bold text-white truncate">{item.projectName || item.vendorName || item.poNumber || 'Delivery'}</div><div className="text-[9px] forge-muted mt-1">{timeText(item.scheduledStart)} • {statusLabel(item.status)}</div></button>)}</div></div>)}</div>}
 
-    {view === 'MONTH' && <div className="forge-card p-5"><div className="grid grid-cols-7 gap-2">{monthDays.map(day => { const items = deliveriesForDate(day); return <button key={day} onClick={() => { setSelectedDate(day); setView('DAY'); }} className="aspect-square rounded-xl border p-2 text-left hover:border-orange-500/40 transition" style={{ borderColor: day === selectedDate ? 'var(--forge-accent)' : 'var(--forge-border-soft)' }}><div className="text-xs forge-muted font-black">{new Date(`${day}T12:00:00`).getDate()}</div><div className="text-lg text-white font-black mt-1">{items.length || ''}</div><div className="flex gap-1 flex-wrap mt-auto">{items.slice(0,4).map(item => <span key={item.id} className={`w-2 h-2 rounded-full ${item.direction === 'inbound' ? 'bg-sky-400' : 'bg-orange-400'}`} />)}</div></button>; })}</div></div>}
+    {view === 'MONTH' && <section aria-label="Delivery month calendar" className="forge-card p-2 sm:p-5">
+      <p className="forge-secondary text-xs mb-3">{localZone} · Selected: {dateText(selectedDate)} · Today: {dateText(dayKey(new Date().toISOString()))}</p>
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
+        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => <div key={day} className="text-center text-xs forge-secondary font-bold py-2">{day}</div>)}
+        {monthDays.map((day, index) => {
+          if (!day) return <div key={`blank-${index}`} aria-hidden="true" />;
+          const items = deliveriesForDate(day);
+          const today = day === dayKey(new Date().toISOString());
+          return <button key={day} aria-label={`${dateText(day)}, ${items.length} deliveries${today ? ', Today' : ''}${day === selectedDate ? ', Selected' : ''}`} aria-current={today ? 'date' : undefined} aria-pressed={day === selectedDate} onClick={() => { setSelectedDate(day); setView('DAY'); }} className="min-w-0 min-h-16 sm:min-h-24 rounded-lg border p-1 sm:p-2 text-left hover:border-orange-500/40 focus-visible:outline focus-visible:outline-2 transition" style={{ borderColor: day === selectedDate ? 'var(--forge-accent)' : 'var(--forge-border-soft)' }}>
+            <div className="text-xs text-white font-black">{new Date(`${day}T12:00:00`).getDate()}</div>
+            {today && <div className="text-[9px] text-white">Today</div>}
+            <div className="text-sm text-white font-bold">{items.length || ''}</div>
+            <div className="flex gap-1 flex-wrap">{items.slice(0,4).map(item => <span key={item.id} className={`w-2 h-2 rounded-full ${item.direction === 'inbound' ? 'bg-sky-400' : 'bg-orange-400'}`} />)}</div>
+          </button>;
+        })}
+      </div>
+    </section>}
 
     {view === 'REQUESTS' && <section className="forge-card p-5"><div className="flex items-center justify-between gap-4"><div><div className="text-[10px] uppercase tracking-wider forge-muted font-black">Compatibility inbox</div><h2 className="text-lg font-black text-white mt-1">Legacy browser delivery requests</h2></div><span className="forge-muted text-xs">Read-only during Core cutover</span></div><p className="forge-secondary text-sm mt-2">These requests remain in the existing browser CRM store and have not been deleted. Schedule the corresponding job in Core above when it is ready for dispatch.</p><div className="space-y-2 mt-5">{pendingLegacyRequests.map(request => { const project = data.projects.find(project => project.id === request.projectId); return <div key={request.id} className="border rounded-xl p-4 flex justify-between gap-4" style={{ borderColor: 'var(--forge-border-soft)' }}><div><strong className="text-white">{project?.projectName || 'Legacy project'}</strong><div className="forge-muted text-xs mt-1">{request.requestedDate} • {request.requestedWindow}</div>{request.notes && <div className="forge-secondary text-xs mt-2">{request.notes}</div>}</div><span className="text-[9px] font-black uppercase text-amber-300">Legacy pending</span></div>; })}{!pendingLegacyRequests.length && <div className="forge-muted text-sm py-8 text-center">No pending legacy requests.</div>}</div></section>}
 
@@ -189,7 +223,7 @@ export const DeliveryBoard: React.FC = () => {
       {direction === 'inbound' ? <label><span className="text-[10px] uppercase forge-muted font-black">Purchase order</span><select value={poId} onChange={event => setPoId(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg"><option value="">Select PO…</option>{workspace.purchaseOrders.filter(po => po.status !== 'cancelled').map(po => <option key={po.id} value={po.id}>{po.poNumber} — {po.vendorName}</option>)}</select></label> : <label><span className="text-[10px] uppercase forge-muted font-black">Project</span><select value={projectId} onChange={event => setProjectId(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg"><option value="">Select project…</option>{workspace.projects.map(project => <option key={project.id} value={project.id}>{project.name}{project.customerName ? ` — ${project.customerName}` : ''}</option>)}</select></label>}
       {direction === 'outbound' && <label><span className="text-[10px] uppercase forge-muted font-black">Quote (optional)</span><select value={quoteId} onChange={event => setQuoteId(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg"><option value="">No quote link</option>{workspace.quotes.filter(quote => !projectId || quote.projectId === projectId).map(quote => <option key={quote.id} value={quote.id}>{quote.quoteNumber}</option>)}</select></label>}
       <label><span className="text-[10px] uppercase forge-muted font-black">Delivery #</span><input value={deliveryNumber} onChange={event => setDeliveryNumber(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" placeholder="DEL-2026-001" /></label>
-      <label><span className="text-[10px] uppercase forge-muted font-black">Scheduled start</span><input type="datetime-local" value={scheduledStart} onChange={event => setScheduledStart(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
+      <label><span className="text-[10px] uppercase forge-muted font-black">Scheduled start ({localZone}, this device)</span><input type="datetime-local" value={scheduledStart} onChange={event => setScheduledStart(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
       <label><span className="text-[10px] uppercase forge-muted font-black">Load type</span><select value={loadType} onChange={event => setLoadType(event.target.value)} disabled={direction === 'inbound'} className="forge-input w-full mt-1 p-2.5 rounded-lg">{LOAD_TYPES.map(type => <option key={type}>{type}</option>)}</select></label>
       <label><span className="text-[10px] uppercase forge-muted font-black">Truck</span><input value={truck} onChange={event => setTruck(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" placeholder="Truck / unit" /></label>
       <label><span className="text-[10px] uppercase forge-muted font-black">Driver</span><input value={driver} onChange={event => setDriver(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" placeholder="Driver" /></label>
@@ -197,25 +231,25 @@ export const DeliveryBoard: React.FC = () => {
       <label className="md:col-span-2"><span className="text-[10px] uppercase forge-muted font-black">Notes</span><textarea value={notes} onChange={event => setNotes(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg min-h-20" /></label>
     </div><div className="flex justify-end gap-2 mt-5"><button onClick={() => setShowNew(false)} className="forge-button-secondary px-4 py-2.5 rounded-lg font-bold">Cancel</button><button onClick={() => void createDelivery()} disabled={busy || !scheduledStart || (direction === 'inbound' ? !poId : (!projectId && !quoteId))} className="px-5 py-2.5 rounded-lg font-black text-black disabled:opacity-40" style={{ background: 'var(--forge-accent)' }}>{busy ? 'Saving…' : 'Schedule in Core'}</button></div></div></div>}
 
-    {editing && <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"><EditDelivery delivery={editing} busy={busy} onClose={() => setEditing(null)} onSave={patch => void updateDelivery(editing, patch)} /></div>}
+    {editing && <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"><EditDelivery key={editing.id} delivery={editing} busy={busy} error={error} onClose={() => setEditing(null)} onSave={patch => void updateDelivery(editing, patch)} /></div>}
   </div>;
 };
 
-const EditDelivery: React.FC<{ delivery: CoreDeliveryRecord; busy: boolean; onClose: () => void; onSave: (patch: Partial<CoreDeliveryRecord>) => void }> = ({ delivery, busy, onClose, onSave }) => {
+const EditDelivery: React.FC<{ delivery: CoreDeliveryRecord; busy: boolean; error?: string; onClose: () => void; onSave: (patch: Partial<CoreDeliveryRecord>) => void }> = ({ delivery, busy, error, onClose, onSave }) => {
   const [status, setStatus] = useState<CoreDeliveryStatus>(delivery.status);
-  const [start, setStart] = useState(delivery.scheduledStart ? new Date(delivery.scheduledStart).toISOString().slice(0,16) : '');
+  const [start, setStart] = useState(localInput(delivery.scheduledStart));
   const [truck, setTruck] = useState(delivery.truck || '');
   const [driver, setDriver] = useState(delivery.driver || '');
   const [loadType, setLoadType] = useState(delivery.loadType || 'Other');
   const [stop, setStop] = useState(delivery.stopSequence || 1);
   const [notes, setNotes] = useState(delivery.notes || '');
-  return <div className="forge-card w-full max-w-2xl p-6"><div className="flex justify-between gap-4"><div><div className="text-[10px] uppercase forge-muted font-black">Dispatch edit</div><h2 className="text-xl font-black text-white mt-1">{delivery.deliveryNumber || delivery.projectName || delivery.poNumber || 'Delivery'}</h2></div><button onClick={onClose} className="forge-button-secondary px-3 py-2 rounded-lg">Close</button></div><div className="grid md:grid-cols-2 gap-3 mt-5">
+  return <div role="dialog" aria-modal="true" aria-label="Edit delivery" className="forge-card w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto"><div className="flex justify-between gap-4"><div><div className="text-[10px] uppercase forge-muted font-black">Dispatch edit</div><h2 className="text-xl font-black text-white mt-1">{delivery.deliveryNumber || delivery.projectName || delivery.poNumber || 'Delivery'}</h2></div><button onClick={onClose} className="forge-button-secondary px-3 py-2 rounded-lg">Close</button></div><div className="grid md:grid-cols-2 gap-3 mt-5">
     <label><span className="text-[10px] uppercase forge-muted font-black">Status</span><select value={status} onChange={event => setStatus(event.target.value as CoreDeliveryStatus)} className="forge-input w-full mt-1 p-2.5 rounded-lg">{STATUS.map(item => <option value={item} key={item}>{statusLabel(item)}</option>)}</select></label>
-    <label><span className="text-[10px] uppercase forge-muted font-black">Scheduled start</span><input type="datetime-local" value={start} onChange={event => setStart(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
+    <label><span className="text-[10px] uppercase forge-muted font-black">Scheduled start ({localZone}, this device)</span><input type="datetime-local" value={start} onChange={event => setStart(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
     <label><span className="text-[10px] uppercase forge-muted font-black">Truck</span><input value={truck} onChange={event => setTruck(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
     <label><span className="text-[10px] uppercase forge-muted font-black">Driver</span><input value={driver} onChange={event => setDriver(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
     <label><span className="text-[10px] uppercase forge-muted font-black">Load type</span><input value={loadType} onChange={event => setLoadType(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
     <label><span className="text-[10px] uppercase forge-muted font-black">Stop sequence</span><input type="number" min="1" value={stop} onChange={event => setStop(Number(event.target.value))} className="forge-input w-full mt-1 p-2.5 rounded-lg" /></label>
     <label className="md:col-span-2"><span className="text-[10px] uppercase forge-muted font-black">Notes</span><textarea value={notes} onChange={event => setNotes(event.target.value)} className="forge-input w-full mt-1 p-2.5 rounded-lg min-h-20" /></label>
-  </div><div className="flex justify-end gap-2 mt-5"><button onClick={onClose} className="forge-button-secondary px-4 py-2.5 rounded-lg font-bold">Cancel</button><button disabled={busy} onClick={() => onSave({ status, scheduledStart: start ? new Date(start).toISOString() : undefined, truck, driver, loadType, stopSequence: stop, notes })} className="px-5 py-2.5 rounded-lg font-black text-black disabled:opacity-40" style={{ background: 'var(--forge-accent)' }}>{busy ? 'Saving…' : 'Save to Core'}</button></div></div>;
+  </div>{error && <p role="alert" className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 text-red-200 px-4 py-3 text-sm">{error} Your edits are preserved. Use Save to Core to retry.</p>}<div className="flex justify-end gap-2 mt-5"><button onClick={onClose} className="forge-button-secondary px-4 py-2.5 rounded-lg font-bold">Cancel</button><button aria-disabled={busy} onClick={() => { if (!busy) onSave({ status, scheduledStart: start === localInput(delivery.scheduledStart) ? delivery.scheduledStart : (start ? new Date(start).toISOString() : undefined), truck, driver, loadType, stopSequence: stop, notes }); }} className="px-5 py-2.5 rounded-lg font-black text-black disabled:opacity-40" style={{ background: 'var(--forge-accent)' }}>{busy ? 'Saving…' : 'Save to Core'}</button></div></div>;
 };
