@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useForgeStore } from '../store';
 import { ICONS } from '../constants';
+import { listViewState } from '../purchasingLogic';
 import {
   coreAddressText,
   createCoreDelivery,
@@ -48,6 +49,8 @@ export const DeliveryBoard: React.FC = () => {
   const [view, setView] = useState<BoardView>('DAY');
   const [selectedDate, setSelectedDate] = useState(dayKey(new Date().toISOString()));
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -67,9 +70,9 @@ export const DeliveryBoard: React.FC = () => {
   const [notes, setNotes] = useState('');
 
   const refresh = async () => {
-    setLoading(true); setError('');
-    try { setWorkspace(await loadOperationsWorkspace()); }
-    catch (err: any) { setError(err?.message || 'Could not load Forge Operations.'); }
+    setLoading(true); setError(''); setLoadError('');
+    try { setWorkspace(await loadOperationsWorkspace()); setLoaded(true); }
+    catch (err: any) { setLoadError(err?.message || 'Could not load Forge Operations.'); }
     finally { setLoading(false); }
   };
 
@@ -174,7 +177,10 @@ export const DeliveryBoard: React.FC = () => {
     </div>
   );
 
-  if (!workspace.context?.organizationId && !loading) return <div className="forge-card p-8 max-w-2xl"><h2 className="text-xl font-black text-white">Connect Forge Core</h2><p className="forge-secondary mt-2">Delivery Operations now runs from Forge Core. Use CORE SIGN IN above, then return here.</p></div>;
+  const viewState = listViewState({ loading, loaded, error: loadError, connected: !!workspace.context?.organizationId, count: workspace.deliveries.length });
+  const countsReady = viewState === 'ready' || viewState === 'empty';
+
+  if (viewState === 'disconnected') return <div className="forge-card p-8 max-w-2xl"><h2 className="text-xl font-black text-white">Connect Forge Core</h2><p className="forge-secondary mt-2">Delivery Operations now runs from Forge Core. Use CORE SIGN IN above, then return here.</p></div>;
 
   return <div className="space-y-6">
     <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
@@ -182,11 +188,12 @@ export const DeliveryBoard: React.FC = () => {
       <div className="flex flex-wrap gap-2"><button onClick={() => void refresh()} disabled={loading || busy} className="forge-button-secondary px-4 py-2.5 rounded-lg text-sm font-bold">{loading ? 'Loading…' : 'Refresh Core'}</button><button onClick={() => setShowNew(true)} className="px-4 py-2.5 rounded-lg text-sm font-black text-black flex items-center gap-2" style={{ background: 'var(--forge-accent)' }}><ICONS.Plus className="w-4 h-4" /> Schedule Delivery</button></div>
     </div>
 
+    {viewState === 'failed' && <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-200 px-4 py-3 text-sm flex items-center justify-between gap-4"><span>Could not load deliveries: {loadError}</span><button onClick={() => void refresh()} disabled={loading} className="forge-button-secondary px-3 py-1.5 rounded-lg text-xs font-bold">Retry</button></div>}
     {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-200 px-4 py-3 text-sm">{error}</div>}
     {message && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 px-4 py-3 text-sm">{message}</div>}
 
     <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
-      {[['Today', metrics.today], ['Open inbound', metrics.inbound], ['Open outbound', metrics.outbound], ['In transit', metrics.inTransit]].map(([label, value]) => <div className="forge-card p-4" key={String(label)}><div className="text-[10px] uppercase tracking-wider forge-muted font-black">{label}</div><div className="text-2xl font-black text-white mt-2">{value}</div></div>)}
+      {[['Today', countsReady ? metrics.today : '—'], ['Open inbound', countsReady ? metrics.inbound : '—'], ['Open outbound', countsReady ? metrics.outbound : '—'], ['In transit', countsReady ? metrics.inTransit : '—']].map(([label, value]) => <div className="forge-card p-4" key={String(label)}><div className="text-[10px] uppercase tracking-wider forge-muted font-black">{label}</div><div className="text-2xl font-black text-white mt-2">{value}</div></div>)}
     </div>
 
     <div className="forge-card p-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
@@ -194,7 +201,7 @@ export const DeliveryBoard: React.FC = () => {
       {view !== 'REQUESTS' && <input type="date" value={selectedDate} onChange={event => setSelectedDate(event.target.value)} className="forge-input p-2.5 rounded-lg text-sm font-bold" />}
     </div>
 
-    {view === 'DAY' && <div className="space-y-3">{dayDeliveries.length ? dayDeliveries.map(delivery => <DeliveryCard key={delivery.id} delivery={delivery} />) : <div className="forge-card p-16 text-center"><ICONS.Truck className="w-12 h-12 forge-muted mx-auto" /><h3 className="text-lg font-black text-white mt-4">No Core deliveries on {dateText(selectedDate)}</h3><p className="forge-muted text-sm mt-2">Schedule an outbound project load or inbound vendor delivery.</p></div>}</div>}
+    {view === 'DAY' && <div className="space-y-3">{dayDeliveries.length ? dayDeliveries.map(delivery => <DeliveryCard key={delivery.id} delivery={delivery} />) : viewState === 'loading' ? <div className="forge-card p-16 text-center forge-muted text-sm">Loading deliveries…</div> : viewState === 'failed' ? <div className="forge-card p-16 text-center text-red-200 text-sm">Deliveries could not be loaded. See the error above and retry.</div> : <div className="forge-card p-16 text-center"><ICONS.Truck className="w-12 h-12 forge-muted mx-auto" /><h3 className="text-lg font-black text-white mt-4">No Core deliveries on {dateText(selectedDate)}</h3><p className="forge-muted text-sm mt-2">Schedule an outbound project load or inbound vendor delivery.</p></div>}</div>}
 
     {view === 'WEEK' && <div className="grid md:grid-cols-2 xl:grid-cols-7 gap-3">{weekDays.map(day => <div className="forge-card p-3 min-h-64" key={day}><button onClick={() => { setSelectedDate(day); setView('DAY'); }} className="w-full text-left"><div className="text-[10px] uppercase forge-muted font-black">{dateText(day)}</div><div className="text-xl font-black text-white mt-1">{deliveriesForDate(day).length}</div></button><div className="space-y-2 mt-4">{deliveriesForDate(day).slice(0, 6).map(item => <button key={item.id} onClick={() => { setError(''); setEditing(item); }} className="w-full text-left border rounded-lg p-2" style={{ borderColor: 'var(--forge-border-soft)' }}><div className="text-xs font-bold text-white truncate">{item.projectName || item.vendorName || item.poNumber || 'Delivery'}</div><div className="text-[9px] forge-muted mt-1">{timeText(item.scheduledStart)} • {statusLabel(item.status)}</div></button>)}</div></div>)}</div>}
 

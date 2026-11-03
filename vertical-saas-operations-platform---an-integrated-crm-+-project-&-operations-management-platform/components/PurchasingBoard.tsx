@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createPurchaseOrder,
   loadCurrentQuoteLines,
@@ -11,6 +11,20 @@ import {
   type PurchasingQuoteLine,
   type PurchasingWorkspace
 } from '../forgePurchasing';
+import {
+  buildReceiptPreview,
+  clampReceiptQty,
+  computePoTotals,
+  createLatestGuard,
+  defaultReceiptDraft,
+  fillRemainingDraft,
+  formatTaxRate,
+  listViewState,
+  percentToTaxRate,
+  poDetailsReady,
+  remainingQty,
+  taxRateToPercent
+} from '../purchasingLogic';
 
 const money = (value: number) => new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' }).format(Number(value || 0));
 const dateText = (value?: string) => value ? new Intl.DateTimeFormat('en-CA', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T12:00:00`)) : '—';
@@ -18,6 +32,8 @@ const dateText = (value?: string) => value ? new Intl.DateTimeFormat('en-CA', { 
 export const PurchasingBoard: React.FC = () => {
   const [workspace, setWorkspace] = useState<PurchasingWorkspace>({ context: null, quotes: [], vendors: [], purchaseOrders: [] });
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -34,6 +50,9 @@ export const PurchasingBoard: React.FC = () => {
 
   const [selectedPo, setSelectedPo] = useState<PurchaseOrderSummary | null>(null);
   const [poItems, setPoItems] = useState<PurchaseOrderItemDetail[]>([]);
+  const [loadedPoId, setLoadedPoId] = useState<string | null>(null);
+  const [poError, setPoError] = useState('');
+  const poGuard = useRef(createLatestGuard()).current;
   const [receiptDraft, setReceiptDraft] = useState<Record<string, number>>({});
   const [packingSlip, setPackingSlip] = useState('');
   const [deliveryStart, setDeliveryStart] = useState('');
@@ -41,8 +60,9 @@ export const PurchasingBoard: React.FC = () => {
   const refresh = async () => {
     setLoading(true);
     setError('');
-    try { setWorkspace(await loadPurchasingWorkspace()); }
-    catch (err: any) { setError(err?.message || 'Could not load Forge Purchasing.'); }
+    setLoadError('');
+    try { setWorkspace(await loadPurchasingWorkspace()); setLoaded(true); }
+    catch (err: any) { setLoadError(err?.message || 'Could not load Forge Purchasing.'); }
     finally { setLoading(false); }
   };
 
@@ -68,6 +88,11 @@ export const PurchasingBoard: React.FC = () => {
     const draft = lineDrafts[line.id];
     return sum + Number(draft?.quantity || 0) * Number(draft?.unitCost || 0);
   }, 0), [selectedLines, lineDrafts]);
+
+  const poTotals = useMemo(() => computePoTotals(poDraftSubtotal, taxRate), [poDraftSubtotal, taxRate]);
+  const viewState = listViewState({ loading, loaded, error: loadError, connected: !!workspace.context?.organizationId, count: workspace.purchaseOrders.length });
+  const countsReady = viewState === 'ready' || viewState === 'empty';
+  const receiptPreview = useMemo(() => buildReceiptPreview(poItems, receiptDraft), [poItems, receiptDraft]);
 
   const metrics = useMemo(() => ({
     open: workspace.purchaseOrders.filter(po => !['received', 'cancelled'].includes(po.status)).length,
@@ -102,27 +127,37 @@ export const PurchasingBoard: React.FC = () => {
   };
 
   const openPo = async (po: PurchaseOrderSummary) => {
-    setSelectedPo(po); setBusy(true); setError(''); setPackingSlip(''); setDeliveryStart('');
+    const requestId = poGuard.begin();
+    // Clear the previous PO's lines immediately so they can never be shown under this PO.
+    setSelectedPo(po); setLoadedPoId(null); setPoItems([]); setReceiptDraft({}); setPoError('');
+    setBusy(true); setError(''); setPackingSlip(''); setDeliveryStart('');
     try {
       const items = await loadPurchaseOrderItems(po.id);
+      if (!poGuard.isCurrent(requestId)) return;
       setPoItems(items);
-      setReceiptDraft(Object.fromEntries(items.map(item => [item.id, Math.max(0, item.quantityOrdered - item.quantityReceived)])));
-    } catch (err: any) { setError(err?.message || 'Could not load PO lines.'); }
-    finally { setBusy(false); }
+      setReceiptDraft(defaultReceiptDraft(items));
+      setLoadedPoId(po.id);
+    } catch (err: any) {
+      if (poGuard.isCurrent(requestId)) setPoError(err?.message || 'Could not load PO lines.');
+    }
+    finally { if (poGuard.isCurrent(requestId)) setBusy(false); }
   };
 
   const receive = async () => {
     if (!selectedPo) return;
-    const lines = poItems.map(item => ({ purchaseOrderItemId: item.id, quantityReceived: Number(receiptDraft[item.id] || 0) })).filter(line => line.quantityReceived > 0);
+    if (!poDetailsReady(selectedPo.id, loadedPoId)) return;
+    const lines = receiptPreview.lines.map(line => ({ purchaseOrderItemId: line.id, quantityReceived: line.quantity }));
     if (!lines.length) return;
+    const requestId = poGuard.begin();
     setBusy(true); setError(''); setMessage('');
     try {
       const result = await receivePurchaseOrder({ purchaseOrderId: selectedPo.id, packingSlip: packingSlip || undefined, lines });
       setMessage(`Receipt posted to ${selectedPo.poNumber}. PO status: ${result?.status || 'updated'}.`);
       await refresh();
       const fresh = await loadPurchaseOrderItems(selectedPo.id);
+      if (!poGuard.isCurrent(requestId)) return;
       setPoItems(fresh);
-      setReceiptDraft(Object.fromEntries(fresh.map(item => [item.id, Math.max(0, item.quantityOrdered - item.quantityReceived)])));
+      setReceiptDraft(defaultReceiptDraft(fresh));
     } catch (err: any) { setError(err?.message || 'Could not receive purchase order.'); }
     finally { setBusy(false); }
   };
@@ -143,7 +178,7 @@ export const PurchasingBoard: React.FC = () => {
     finally { setBusy(false); }
   };
 
-  if (!workspace.context?.organizationId && !loading) {
+  if (viewState === 'disconnected') {
     return <div className="forge-card p-8 max-w-2xl"><h2 className="text-xl font-black text-white">Connect Forge Core</h2><p className="forge-secondary mt-2">Purchasing is Core-native. Use CORE SIGN IN in the Forge header, then return here.</p></div>;
   }
 
@@ -153,11 +188,12 @@ export const PurchasingBoard: React.FC = () => {
       <button onClick={() => void refresh()} disabled={loading || busy} className="forge-button-secondary px-4 py-2 rounded-lg text-sm font-bold">{loading ? 'Loading…' : 'Refresh Core'}</button>
     </div>
 
+    {viewState === 'failed' && <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-200 px-4 py-3 text-sm flex items-center justify-between gap-4"><span>Could not load purchase orders: {loadError}</span><button onClick={() => void refresh()} disabled={loading} className="forge-button-secondary px-3 py-1.5 rounded-lg text-xs font-bold">Retry</button></div>}
     {error && <div className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-200 px-4 py-3 text-sm">{error}</div>}
     {message && <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-200 px-4 py-3 text-sm">{message}</div>}
 
     <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
-      {[['Open POs', metrics.open], ['Partially received', metrics.partial], ['Received', metrics.received], ['PO value', money(metrics.committed)]].map(([label, value]) => <div key={String(label)} className="forge-card p-4"><div className="text-[10px] uppercase tracking-wider forge-muted font-black">{label}</div><div className="text-2xl font-black text-white mt-2">{value}</div></div>)}
+      {[['Open POs', countsReady ? metrics.open : '—'], ['Partially received', countsReady ? metrics.partial : '—'], ['Received', countsReady ? metrics.received : '—'], ['PO value', countsReady ? money(metrics.committed) : '—']].map(([label, value]) => <div key={String(label)} className="forge-card p-4"><div className="text-[10px] uppercase tracking-wider forge-muted font-black">{label}</div><div className="text-2xl font-black text-white mt-2">{value}</div></div>)}
     </div>
 
     <div className="grid 2xl:grid-cols-[minmax(0,1.2fr)_minmax(420px,.8fr)] gap-6 items-start">
@@ -169,28 +205,35 @@ export const PurchasingBoard: React.FC = () => {
           {!vendorId && <label><span className="text-[10px] uppercase tracking-wider forge-muted font-black">New vendor name</span><input className="forge-input w-full mt-1 p-2.5 rounded-lg" value={vendorName} onChange={e => setVendorName(e.target.value)} placeholder="Supplier / vendor" /></label>}
           <label><span className="text-[10px] uppercase tracking-wider forge-muted font-black">PO number</span><input className="forge-input w-full mt-1 p-2.5 rounded-lg" value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="PO-2026-001" /></label>
           <label><span className="text-[10px] uppercase tracking-wider forge-muted font-black">Expected date</span><input type="date" className="forge-input w-full mt-1 p-2.5 rounded-lg" value={expectedDate} onChange={e => setExpectedDate(e.target.value)} /></label>
-          <label><span className="text-[10px] uppercase tracking-wider forge-muted font-black">Tax rate</span><input type="number" step="0.01" min="0" max="1" className="forge-input w-full mt-1 p-2.5 rounded-lg" value={taxRate} onChange={e => setTaxRate(Number(e.target.value))} /></label>
+          <label><span className="text-[10px] uppercase tracking-wider forge-muted font-black">Tax rate (%)</span><input type="number" step="0.01" min="0" max="100" className="forge-input w-full mt-1 p-2.5 rounded-lg" value={taxRateToPercent(taxRate)} onChange={e => setTaxRate(percentToTaxRate(e.target.value))} /></label>
         </div>
         <label className="block"><span className="text-[10px] uppercase tracking-wider forge-muted font-black">Notes</span><textarea className="forge-input w-full mt-1 p-2.5 rounded-lg min-h-20" value={notes} onChange={e => setNotes(e.target.value)} /></label>
 
         {quoteLines.length > 0 ? <div className="overflow-x-auto border rounded-xl" style={{ borderColor: 'var(--forge-border-soft)' }}><table className="w-full text-sm"><thead><tr className="forge-muted text-[10px] uppercase tracking-wider text-left"><th className="p-3">Order</th><th className="p-3">Material</th><th className="p-3 text-right">Qty</th><th className="p-3 text-right">Cost</th><th className="p-3 text-right">Extended</th></tr></thead><tbody>{quoteLines.map(line => { const draft = lineDrafts[line.id] || { selected: false, quantity: line.quantity, unitCost: line.unitCost }; return <tr key={line.id} className="border-t" style={{ borderColor: 'var(--forge-border-soft)' }}><td className="p-3"><input type="checkbox" checked={draft.selected} onChange={e => setLineDrafts(old => ({ ...old, [line.id]: { ...draft, selected: e.target.checked } }))} /></td><td className="p-3"><strong className="text-white block">{line.description}</strong><span className="forge-muted text-xs">{line.sku || 'No SKU'} • {line.unit || 'unit'}</span></td><td className="p-3"><input type="number" min="0" step="0.01" className="forge-input w-24 p-2 rounded-lg text-right" value={draft.quantity} onChange={e => setLineDrafts(old => ({ ...old, [line.id]: { ...draft, quantity: Number(e.target.value) } }))} /></td><td className="p-3"><input type="number" min="0" step="0.01" className="forge-input w-28 p-2 rounded-lg text-right" value={draft.unitCost} onChange={e => setLineDrafts(old => ({ ...old, [line.id]: { ...draft, unitCost: Number(e.target.value) } }))} /></td><td className="p-3 text-right font-bold text-white">{money(draft.quantity * draft.unitCost)}</td></tr>; })}</tbody></table></div> : quoteId ? <div className="forge-muted text-sm">This quote has no current Core line items.</div> : null}
 
-        <div className="flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: 'var(--forge-border-soft)' }}><div><div className="text-[10px] uppercase forge-muted font-black">Draft cost</div><div className="text-xl font-black text-white">{money(poDraftSubtotal)} <span className="text-sm forge-muted font-medium">+ tax</span></div></div><button onClick={() => void createPo()} disabled={busy || !quoteId || !poNumber.trim() || (!vendorId && !vendorName.trim()) || !selectedLines.length} className="px-5 py-3 rounded-xl font-black text-sm text-black disabled:opacity-40" style={{ background: 'var(--forge-accent)' }}>{busy ? 'Working…' : 'Create Purchase Order'}</button></div>
+        <div className="flex items-center justify-between gap-4 border-t pt-4" style={{ borderColor: 'var(--forge-border-soft)' }}><div data-testid="po-totals"><div className="text-[10px] uppercase forge-muted font-black">Draft cost</div><div className="text-sm forge-secondary mt-1">Subtotal {money(poTotals.subtotal)} • Tax ({formatTaxRate(taxRate)}) {money(poTotals.tax)}</div><div className="text-xl font-black text-white">Total {money(poTotals.total)}</div></div><button onClick={() => void createPo()} disabled={busy || !quoteId || !poNumber.trim() || (!vendorId && !vendorName.trim()) || !selectedLines.length} className="px-5 py-3 rounded-xl font-black text-sm text-black disabled:opacity-40" style={{ background: 'var(--forge-accent)' }}>{busy ? 'Working…' : 'Create Purchase Order'}</button></div>
       </section>
 
       <section className="forge-card p-5 space-y-4">
         <div><div className="text-[10px] uppercase tracking-[.18em] forge-muted font-black">Core history</div><h2 className="text-lg font-black text-white mt-1">Recent purchase orders</h2></div>
-        <div className="space-y-2 max-h-[720px] overflow-y-auto pr-1">{workspace.purchaseOrders.map(po => <button key={po.id} onClick={() => void openPo(po)} className={`w-full text-left rounded-xl border p-3 transition ${selectedPo?.id === po.id ? 'forge-nav-active' : 'forge-nav-item'}`} style={{ borderColor: 'var(--forge-border-soft)' }}><div className="flex justify-between gap-3"><div><strong className="text-white">{po.poNumber}</strong><div className="forge-secondary text-xs mt-1">{po.vendorName}{po.quoteNumber ? ` • ${po.quoteNumber}` : ''}</div></div><div className="text-right"><div className="text-white font-bold">{money(po.total)}</div><div className="forge-muted text-[10px] uppercase mt-1">{po.status}</div></div></div><div className="forge-muted text-[10px] mt-2">Expected {dateText(po.expectedDate)} • {po.receivedCount}/{po.itemCount} lines complete</div></button>)}{!workspace.purchaseOrders.length && <div className="forge-muted text-sm py-8 text-center">No Core purchase orders yet.</div>}</div>
+        <div className="space-y-2 max-h-[720px] overflow-y-auto pr-1">{workspace.purchaseOrders.map(po => <button key={po.id} onClick={() => void openPo(po)} className={`w-full text-left rounded-xl border p-3 transition ${selectedPo?.id === po.id ? 'forge-nav-active' : 'forge-nav-item'}`} style={{ borderColor: 'var(--forge-border-soft)' }}><div className="flex justify-between gap-3"><div><strong className="text-white">{po.poNumber}</strong><div className="forge-secondary text-xs mt-1">{po.vendorName}{po.quoteNumber ? ` • ${po.quoteNumber}` : ''}</div></div><div className="text-right"><div className="text-white font-bold">{money(po.total)}</div><div className="forge-muted text-[10px] uppercase mt-1">{po.status}</div></div></div><div className="forge-muted text-[10px] mt-2">Expected {dateText(po.expectedDate)} • {po.receivedCount}/{po.itemCount} lines complete</div></button>)}{viewState === 'loading' && <div className="forge-muted text-sm py-8 text-center">Loading purchase orders…</div>}{viewState === 'failed' && <div className="text-red-200 text-sm py-8 text-center">Purchase orders could not be loaded. See the error above and retry.</div>}{viewState === 'empty' && <div className="forge-muted text-sm py-8 text-center">No Core purchase orders yet.</div>}</div>
       </section>
     </div>
 
     {selectedPo && <section className="forge-card p-5 space-y-5">
+      {!poDetailsReady(selectedPo.id, loadedPoId) ? (poError
+        ? <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 text-red-200 px-4 py-3 text-sm flex items-center justify-between gap-4"><span>Could not load PO lines: {poError}</span><button onClick={() => void openPo(selectedPo)} disabled={busy} className="forge-button-secondary px-3 py-1.5 rounded-lg text-xs font-bold">Retry</button></div>
+        : <div className="forge-muted text-sm py-6 text-center">Loading purchase order lines…</div>)
+      : <>
       <div className="flex flex-wrap justify-between gap-4"><div><div className="text-[10px] uppercase tracking-[.18em] forge-muted font-black">Receiving & Operations</div><h2 className="text-lg font-black text-white mt-1">{selectedPo.poNumber} — {selectedPo.vendorName}</h2></div><div className="forge-muted text-xs">{selectedPo.status.toUpperCase()} • {money(selectedPo.total)}</div></div>
-      <div className="overflow-x-auto border rounded-xl" style={{ borderColor: 'var(--forge-border-soft)' }}><table className="w-full text-sm"><thead><tr className="forge-muted text-[10px] uppercase tracking-wider text-left"><th className="p-3">Material</th><th className="p-3 text-right">Ordered</th><th className="p-3 text-right">Received</th><th className="p-3 text-right">Receive now</th></tr></thead><tbody>{poItems.map(item => { const remaining = Math.max(0, item.quantityOrdered - item.quantityReceived); return <tr key={item.id} className="border-t" style={{ borderColor: 'var(--forge-border-soft)' }}><td className="p-3"><strong className="text-white">{item.description}</strong><div className="forge-muted text-xs">{item.sku || 'No SKU'} • {money(item.unitCost)} / {item.unit || 'unit'}</div></td><td className="p-3 text-right">{item.quantityOrdered}</td><td className="p-3 text-right">{item.quantityReceived}</td><td className="p-3 text-right"><input type="number" min="0" max={remaining} step="0.01" className="forge-input w-28 p-2 rounded-lg text-right" value={receiptDraft[item.id] ?? remaining} disabled={remaining <= 0} onChange={e => setReceiptDraft(old => ({ ...old, [item.id]: Number(e.target.value) }))} /></td></tr>; })}</tbody></table></div>
+      <div className="overflow-x-auto border rounded-xl" style={{ borderColor: 'var(--forge-border-soft)' }}><table className="w-full text-sm"><thead><tr className="forge-muted text-[10px] uppercase tracking-wider text-left"><th className="p-3">Material</th><th className="p-3 text-right">Ordered</th><th className="p-3 text-right">Received</th><th className="p-3 text-right">Receive now</th></tr></thead><tbody>{poItems.map(item => { const remaining = remainingQty(item); return <tr key={item.id} className="border-t" style={{ borderColor: 'var(--forge-border-soft)' }}><td className="p-3"><strong className="text-white">{item.description}</strong><div className="forge-muted text-xs">{item.sku || 'No SKU'} • {money(item.unitCost)} / {item.unit || 'unit'}</div></td><td className="p-3 text-right">{item.quantityOrdered}</td><td className="p-3 text-right">{item.quantityReceived}</td><td className="p-3 text-right"><input type="number" min="0" max={remaining} step="0.01" className="forge-input w-28 p-2 rounded-lg text-right" value={receiptDraft[item.id] ?? 0} disabled={remaining <= 0} onChange={e => setReceiptDraft(old => ({ ...old, [item.id]: clampReceiptQty(e.target.value, remaining) }))} /></td></tr>; })}</tbody></table></div>
       <div className="grid lg:grid-cols-2 gap-4">
-        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--forge-border-soft)' }}><div className="text-[10px] uppercase tracking-wider forge-muted font-black">Post receipt</div><div className="flex gap-2 mt-3"><input className="forge-input flex-1 p-2.5 rounded-lg" value={packingSlip} onChange={e => setPackingSlip(e.target.value)} placeholder="Packing slip / receipt #" /><button onClick={() => void receive()} disabled={busy || !poItems.some(item => Number(receiptDraft[item.id] || 0) > 0)} className="px-4 py-2 rounded-lg font-bold text-sm text-black disabled:opacity-40" style={{ background: 'var(--forge-accent)' }}>Receive</button></div></div>
+        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--forge-border-soft)' }}><div className="flex items-center justify-between gap-2"><div className="text-[10px] uppercase tracking-wider forge-muted font-black">Post receipt</div><button onClick={() => setReceiptDraft(fillRemainingDraft(poItems))} disabled={busy} className="forge-button-secondary px-3 py-1.5 rounded-lg text-xs font-bold">Fill remaining</button></div>
+          <div data-testid="receipt-preview" className="mt-3 text-sm">{receiptPreview.lineCount ? <><div className="forge-muted text-[10px] uppercase tracking-wider font-black">Will receive ({receiptPreview.lineCount} {receiptPreview.lineCount === 1 ? 'line' : 'lines'} • {money(receiptPreview.totalValue)})</div><ul className="mt-1 space-y-1">{receiptPreview.lines.map(line => <li key={line.id} className="text-white">{line.quantity} {line.unit} × {line.description}<span className="forge-muted text-xs"> • {line.remainingAfter} still outstanding</span></li>)}</ul></> : <div className="forge-muted">Nothing will be received yet. Enter quantities or use Fill remaining.</div>}</div>
+          <div className="flex gap-2 mt-3"><input className="forge-input flex-1 p-2.5 rounded-lg" value={packingSlip} onChange={e => setPackingSlip(e.target.value)} placeholder="Packing slip / receipt #" /><button onClick={() => void receive()} disabled={busy || !receiptPreview.lineCount} className="px-4 py-2 rounded-lg font-bold text-sm text-black disabled:opacity-40" style={{ background: 'var(--forge-accent)' }}>Confirm receipt</button></div></div>
         <div className="rounded-xl border p-4" style={{ borderColor: 'var(--forge-border-soft)' }}><div className="text-[10px] uppercase tracking-wider forge-muted font-black">Schedule inbound</div><div className="flex gap-2 mt-3"><input type="datetime-local" className="forge-input flex-1 p-2.5 rounded-lg" value={deliveryStart} onChange={e => setDeliveryStart(e.target.value)} /><button onClick={() => void scheduleInbound()} disabled={busy || !deliveryStart} className="forge-button-secondary px-4 py-2 rounded-lg font-bold text-sm">Add to Delivery</button></div></div>
       </div>
+      </>}
     </section>}
   </div>;
 };
