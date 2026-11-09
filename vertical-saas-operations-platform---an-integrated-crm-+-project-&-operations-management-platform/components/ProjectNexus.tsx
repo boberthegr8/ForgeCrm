@@ -4,6 +4,13 @@ import { useForgeStore } from '../store';
 import { ICONS } from '../constants';
 import { Project, Phase, Task, DeliveryWindow, LoadType } from '../types';
 
+const projectWorkspaceHref = (project: Project, data: any) => {
+  const scopeId = (project as any).scopeId || (project as any).scope_id ||
+    (data?.scopes || []).find((scope: any) => scope.projectId === project.id || scope.project_id === project.id)?.id;
+  const ref = scopeId ? `scopeId=${encodeURIComponent(scopeId)}` : `projectId=${encodeURIComponent(project.id)}`;
+  return `https://scope.forgehub.dev/?${ref}`;
+};
+
 export const ProjectNexus: React.FC = () => {
   const { data, updateTask, addTask, createDirectDelivery } = useForgeStore();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(data.projects[0]?.id || null);
@@ -70,7 +77,7 @@ export const ProjectNexus: React.FC = () => {
         {data.projects.map(p => (
           <button
             key={p.id}
-            onClick={() => setSelectedProjectId(p.id)}
+            onClick={() => { window.location.href = projectWorkspaceHref(p, data); }}
             className={`flex-shrink-0 px-6 py-4 rounded-2xl border transition-all text-left w-64 ${
               selectedProjectId === p.id 
                 ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl shadow-indigo-200' 
@@ -99,7 +106,7 @@ export const ProjectNexus: React.FC = () => {
             <div className="md:col-span-5 space-y-4 border-r border-slate-50 pr-8">
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Project Hub</span>
-                <h2 className="text-3xl font-black text-slate-900 tracking-tight mt-1">{selectedProject.projectName}</h2>
+                <h2 className="text-3xl font-black text-slate-900 tracking-tight mt-1"><a href={projectWorkspaceHref(selectedProject, data)} className="hover:text-indigo-700">{selectedProject.projectName}</a></h2>
               </div>
               <div className="flex flex-wrap gap-3">
                 <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
